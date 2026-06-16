@@ -1,0 +1,9 @@
+{
+  "iterations": 3,
+  "n_samples": 60,
+  "run_id": "mw_final_depths_2_4_6_iters3",
+  "seed": 42,
+  "shots": 1024,
+  "source_script": "scripts/run_iqm_meyer_wallach.py",
+  "target_iteration_half_width": 0.01
+}
