@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Callable
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Literal
 
 import numpy as np
 from qiskit import QuantumCircuit
 
 from qbanknote.ansatzes import trimmed_reverse_q0_param_count
+from qbanknote.evaluation import append_csv_row, read_csv_or_empty
 from qbanknote.iqm import run_circuits_on_backend, transpile_for_backend
+from qbanknote.progress import report_progress
 from qbanknote.tomography import (
     add_tomography_rotations,
     all_basis_settings,
@@ -217,6 +222,176 @@ def compute_iqm_mw_scores(
         "n_params": len(params),
         "n_samples": n_samples,
     }
+
+
+MW_SUMMARY_COLUMNS = [
+    "ansatz",
+    "depth",
+    "n_qubits",
+    "n_params",
+    "n_samples",
+    "shots",
+    "seed",
+    "mw_avg",
+    "mw_std",
+    "mw_sem",
+    "mw_min",
+    "mw_max",
+]
+
+
+def mw_job_key(ansatz: str, depth: int) -> tuple[str, int]:
+    return str(ansatz), int(depth)
+
+
+def completed_mw_jobs(summary_path: Path) -> set[tuple[str, int]]:
+    frame = read_csv_or_empty(summary_path)
+    if frame.empty:
+        return set()
+    return {
+        mw_job_key(str(row.ansatz), int(row.depth))
+        for row in frame.itertuples(index=False)
+    }
+
+
+def bloch_row_to_score_row(ansatz: str, depth: int, bloch: dict[str, float]) -> dict[str, object]:
+    row: dict[str, object] = {
+        "ansatz": ansatz,
+        "depth": depth,
+        "sample_index": int(bloch["sample_index"]),
+        "mw_score": bloch["mw_score"],
+    }
+    for key, value in bloch.items():
+        if key not in ("sample_index", "mw_score"):
+            row[key] = value
+    return row
+
+
+def summary_row_from_result(
+    *,
+    ansatz: str,
+    depth: int,
+    shots: int,
+    seed: int,
+    result: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "ansatz": ansatz,
+        "depth": depth,
+        "n_qubits": result["n_qubits"],
+        "n_params": result["n_params"],
+        "n_samples": result["n_samples"],
+        "shots": shots,
+        "seed": seed,
+        "mw_avg": result["mw_avg"],
+        "mw_std": result["mw_std"],
+        "mw_sem": result["mw_sem"],
+        "mw_min": result["mw_min"],
+        "mw_max": result["mw_max"],
+    }
+
+
+def write_mw_manifest(
+    path: Path,
+    *,
+    backend,
+    manifest: dict[str, object],
+) -> None:
+    payload = {
+        "created_utc": datetime.now(tz=timezone.utc).isoformat(),
+        "backend": str(backend),
+        **manifest,
+    }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def run_iqm_mw_sweep(
+    backend,
+    *,
+    ansatz_fns: dict[str, Callable[[int, int], QuantumCircuit]],
+    ansatz_names: list[str],
+    depths: list[int],
+    n_qubits: int,
+    n_samples: int,
+    seed: int,
+    shots: int,
+    optimization_level: int,
+    seed_transpiler: int | None,
+    max_circuits_per_job: int,
+    output_dir: Path,
+    resume: bool = True,
+    verbose: bool = False,
+    progress_callback: Callable[[str, int, int], None] | None = None,
+    manifest_extra: dict[str, object] | None = None,
+) -> Path:
+    """Run Meyer-Wallach hardware sweep with resumable CSV artifacts."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = output_dir / "iqm_mw_results.csv"
+    scores_path = output_dir / "iqm_mw_scores.csv"
+    manifest_path = output_dir / "run_manifest.json"
+
+    completed = completed_mw_jobs(summary_path) if resume else set()
+    jobs = [(ansatz_name, depth) for depth in depths for ansatz_name in ansatz_names]
+    total_jobs = len(jobs)
+    done_jobs = sum(1 for job in jobs if job in completed)
+
+    for ansatz_name, depth in jobs:
+        if (ansatz_name, depth) in completed:
+            continue
+
+        if verbose:
+            print(f"Running {ansatz_name} depth={depth}", flush=True)
+
+        depth_seed = seed + depth * 1000 + (1 if ansatz_name == "ansatz_simulator" else 0)
+        result = compute_iqm_mw_scores(
+            backend,
+            ansatz_fns[ansatz_name],
+            n_qubits=n_qubits,
+            depth=depth,
+            n_samples=n_samples,
+            seed=depth_seed,
+            shots=shots,
+            optimization_level=optimization_level,
+            seed_transpiler=seed_transpiler,
+            max_circuits_per_job=max_circuits_per_job,
+        )
+
+        summary_row = summary_row_from_result(
+            ansatz=ansatz_name,
+            depth=depth,
+            shots=shots,
+            seed=depth_seed,
+            result=result,
+        )
+        append_csv_row(summary_path, summary_row)
+
+        for bloch in result["bloch_rows"]:
+            append_csv_row(
+                scores_path,
+                bloch_row_to_score_row(ansatz_name, depth, bloch),
+            )
+
+        done_jobs += 1
+        report_progress(progress_callback, "mw_jobs", done_jobs, total_jobs)
+
+    manifest = {
+        "source_script": "scripts/run_iqm_meyer_wallach.py",
+        "method": "local_xyz_tomography",
+        "n_qubits": n_qubits,
+        "depths": list(depths),
+        "ansatzes": list(ansatz_names),
+        "n_samples": n_samples,
+        "shots": shots,
+        "seed": seed,
+        "optimization_level": optimization_level,
+        "max_circuits_per_job": max_circuits_per_job,
+        "total_circuits": len(ansatz_names) * len(depths) * n_samples * len(BASIS_ORDER),
+        "outputs": ["iqm_mw_results.csv", "iqm_mw_scores.csv"],
+    }
+    if manifest_extra:
+        manifest.update(manifest_extra)
+    write_mw_manifest(manifest_path, backend=backend, manifest=manifest)
+    return output_dir
 
 
 def verify_mw_implementation() -> None:

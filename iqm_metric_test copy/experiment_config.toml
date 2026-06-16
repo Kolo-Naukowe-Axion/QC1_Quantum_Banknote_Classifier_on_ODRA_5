@@ -1,0 +1,40 @@
+[common]
+experiment_name = "ansatz_odra_evaluation"
+cross_validation_dir = "setup/cross_validation"
+outputs_dir = "outputs"
+num_qubits = 5
+random_seed = 42
+optimization_level = 1
+seed_transpiler = 42
+shuffle_execution = true
+iqm_url = "https://odra5.e-science.pl/"
+
+[depths.2]
+checkpoint_epoch = 30
+simulator_uses_ideal_suffix = true
+
+[depths.4]
+checkpoint_epoch = 30
+simulator_uses_ideal_suffix = false
+
+[depths.6]
+checkpoint_epoch = 30
+simulator_uses_ideal_suffix = false
+
+[protocol]
+delta_accuracy = 0.01
+delta_f1 = 0.02
+target_half_width_accuracy = 0.02
+target_half_width_f1 = 0.03
+
+[pilot]
+folds = [1, 2]
+shots = [512, 1024, 2048, 4096]
+repeats = 10
+run_iqm_hardware = true
+
+[final]
+folds = [1, 2, 3, 4, 5]
+shots = [2048]
+repeats = 20
+run_iqm_hardware = true

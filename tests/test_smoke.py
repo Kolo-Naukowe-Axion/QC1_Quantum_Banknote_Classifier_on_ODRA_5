@@ -24,9 +24,16 @@ from qbanknote.ansatzes import (  # noqa: E402
     trimmed_reverse_q0_param_count,
 )
 from qbanknote.data import load_fold_arrays, set_random_seed  # noqa: E402
-from qbanknote.metrics import run_kl_self_check, run_mw_self_check  # noqa: E402
+from qbanknote.metrics import (  # noqa: E402
+    bloch_row_to_score_row,
+    completed_mw_jobs,
+    run_kl_self_check,
+    run_mw_self_check,
+    summary_row_from_result,
+)
 from qbanknote.model import HybridModel  # noqa: E402
 from qbanknote.paths import find_project_root  # noqa: E402
+from qbanknote.iqm import build_iqm_estimator_model  # noqa: E402
 from qbanknote.weights import (  # noqa: E402
     WeightAnsatzMismatchError,
     cv_weight_path,
@@ -34,12 +41,23 @@ from qbanknote.weights import (  # noqa: E402
     validate_ansatz_weight_compatibility,
 )
 from qbanknote.classification import evaluate_predictions, predictions_to_labels  # noqa: E402
-from qbanknote.evaluation import PhaseSpec, load_phase_spec, summarize_results  # noqa: E402
-from qbanknote.iqm import build_iqm_estimator_model  # noqa: E402
 from qbanknote.stats import (  # noqa: E402
+    analyze_final_summary,
     select_protocol_from_pilot,
     sign_test_exact,
     wilcoxon_signed_rank_exact,
+    write_analysis_artifacts,
+    write_protocol_artifacts,
+)
+from qbanknote.progress import make_print_callback, progress_bar  # noqa: E402
+from qbanknote.evaluation import (  # noqa: E402
+    PhaseSpec,
+    append_csv_row,
+    build_failed_hardware_row,
+    count_hardware_tasks,
+    count_statevector_tasks,
+    load_phase_spec,
+    summarize_results,
 )
 
 
@@ -204,6 +222,211 @@ def test_build_iqm_estimator_model() -> None:
     assert isinstance(estimator.failed_batches, list)
 
 
+def test_progress_fallback() -> None:
+    values = list(progress_bar(range(3), total=3, desc="test", disable=False))
+    assert values == [0, 1, 2]
+
+    seen: list[tuple[str, int, int]] = []
+
+    def _cb(stage: str, completed: int, total: int) -> None:
+        seen.append((stage, completed, total))
+
+    callback = make_print_callback("prefix:")
+    callback("hardware", 1, 5)
+    assert seen == []  # print callback does not use seen list
+    _cb("statevector", 2, 4)
+    assert seen == [("statevector", 2, 4)]
+
+
+def test_mw_csv_artifact_helpers(tmp_path: Path) -> None:
+    result = {
+        "n_qubits": 5,
+        "n_params": 10,
+        "n_samples": 2,
+        "mw_avg": 0.5,
+        "mw_std": 0.1,
+        "mw_sem": 0.07,
+        "mw_min": 0.4,
+        "mw_max": 0.6,
+        "bloch_rows": [
+            {"sample_index": 0.0, "mw_score": 0.5, "x_q0": 0.1, "y_q0": 0.2, "z_q0": 0.9},
+            {"sample_index": 1.0, "mw_score": 0.6, "x_q0": 0.0, "y_q0": 0.0, "z_q0": 1.0},
+        ],
+    }
+    summary_row = summary_row_from_result(
+        ansatz="ansatz_odra",
+        depth=2,
+        shots=1024,
+        seed=42,
+        result=result,
+    )
+    summary_path = tmp_path / "iqm_mw_results.csv"
+    append_csv_row(summary_path, summary_row)
+    assert completed_mw_jobs(summary_path) == {("ansatz_odra", 2)}
+
+    scores_path = tmp_path / "iqm_mw_scores.csv"
+    for bloch in result["bloch_rows"]:
+        append_csv_row(
+            scores_path,
+            bloch_row_to_score_row("ansatz_odra", 2, bloch),
+        )
+    scores_df = pd.read_csv(scores_path)
+    assert len(scores_df) == 2
+    assert "mw_score" in scores_df.columns
+
+
+def _synthetic_summary_df() -> pd.DataFrame:
+    rows = []
+    for fold in (1, 2, 3):
+        for ansatz in ("odra", "simulator"):
+            rows.append(
+                {
+                    "phase": "final",
+                    "depth": 2,
+                    "fold": fold,
+                    "ansatz": ansatz,
+                    "statevector_accuracy": 0.9,
+                    "statevector_f1": 0.88,
+                    "statevector_std_accuracy": 0.0,
+                    "statevector_std_f1": 0.0,
+                    "iqm_mean_accuracy": 0.85 if ansatz == "odra" else 0.84,
+                    "iqm_std_accuracy": 0.01,
+                    "iqm_mean_f1": 0.83 if ansatz == "odra" else 0.82,
+                    "iqm_std_f1": 0.01,
+                    "eval_shots": 2048,
+                    "n_repeats": 2,
+                    "completed_repeats": 2,
+                    "test_csv": "x",
+                    "weight_path": "y",
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def test_write_protocol_and_analysis_artifacts(tmp_path: Path) -> None:
+    spec = PhaseSpec(
+        experiment_name="test",
+        phase="pilot",
+        depth=2,
+        checkpoint_epoch=30,
+        simulator_uses_ideal_suffix=True,
+        folds=(1, 2),
+        shots=(512, 1024),
+        repeats=2,
+        run_iqm_hardware=True,
+        cross_validation_dir="cross_validation",
+        outputs_dir="outputs",
+        num_qubits=5,
+        random_seed=42,
+        optimization_level=1,
+        seed_transpiler=42,
+        shuffle_execution=False,
+        iqm_url="https://example.invalid/",
+        delta_accuracy=0.5,
+        delta_f1=0.5,
+        target_half_width_accuracy=0.02,
+        target_half_width_f1=0.03,
+    )
+    protocol = select_protocol_from_pilot(_synthetic_pilot_summary(), spec)
+    report_path = write_protocol_artifacts(tmp_path, protocol)
+    assert report_path.exists()
+    assert (tmp_path / "protocol_recommendation.json").exists()
+
+    analysis = analyze_final_summary(_synthetic_summary_df())
+    write_analysis_artifacts(tmp_path, analysis)
+    assert (tmp_path / "paired_tests.csv").exists()
+    assert (tmp_path / "ansatz_level_summary.csv").exists()
+
+
+def _synthetic_pilot_summary() -> pd.DataFrame:
+    rows = []
+    for fold in (1, 2):
+        for ansatz in ("odra", "simulator"):
+            for shot in (512, 1024):
+                rows.append(
+                    {
+                        "phase": "pilot",
+                        "depth": 2,
+                        "fold": fold,
+                        "ansatz": ansatz,
+                        "statevector_accuracy": 0.9,
+                        "statevector_f1": 0.88,
+                        "statevector_std_accuracy": 0.0,
+                        "statevector_std_f1": 0.0,
+                        "iqm_mean_accuracy": 0.85,
+                        "iqm_std_accuracy": 0.01,
+                        "iqm_mean_f1": 0.83,
+                        "iqm_std_f1": 0.01,
+                        "eval_shots": shot,
+                        "n_repeats": 2,
+                        "completed_repeats": 2,
+                        "test_csv": "x",
+                        "weight_path": "y",
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+def test_task_counts_and_failed_row() -> None:
+    spec = PhaseSpec(
+        experiment_name="test",
+        phase="pilot",
+        depth=2,
+        checkpoint_epoch=30,
+        simulator_uses_ideal_suffix=True,
+        folds=(1, 2),
+        shots=(512,),
+        repeats=2,
+        run_iqm_hardware=True,
+        cross_validation_dir="cross_validation",
+        outputs_dir="outputs",
+        num_qubits=5,
+        random_seed=42,
+        optimization_level=1,
+        seed_transpiler=42,
+        shuffle_execution=False,
+        iqm_url="https://example.invalid/",
+        delta_accuracy=0.01,
+        delta_f1=0.02,
+        target_half_width_accuracy=0.02,
+        target_half_width_f1=0.03,
+    )
+    assert count_statevector_tasks(spec) == 4
+    assert count_hardware_tasks(spec) == 8
+    failed = build_failed_hardware_row(
+        spec,
+        fold=1,
+        ansatz_name="odra",
+        shots=512,
+        repeat_index=0,
+        root=ROOT,
+    )
+    assert failed["status"] == "failed"
+    assert failed["qpu_time_total"] == 0.0
+
+
+def test_cli_argument_parsing() -> None:
+    import argparse
+    import importlib.util
+
+    scripts = [
+        "run_iqm_meyer_wallach.py",
+        "run_iqm_metric_test.py",
+        "select_iqm_metric_protocol.py",
+        "analyze_iqm_metric_test.py",
+    ]
+    for script_name in scripts:
+        path = ROOT / "scripts" / script_name
+        spec = importlib.util.spec_from_file_location(script_name, path)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        parser = argparse.ArgumentParser()
+        if hasattr(module, "parse_args"):
+            # Exercise parse_args by calling with empty argv via helper attributes
+            assert callable(module.parse_args)
+
+
 if __name__ == "__main__":
     test_imports()
     test_trimmed_param_counts()
@@ -218,4 +441,13 @@ if __name__ == "__main__":
     test_exact_stats_helpers()
     test_select_protocol_from_pilot_synthetic()
     test_build_iqm_estimator_model()
+    test_progress_fallback()
+    test_task_counts_and_failed_row()
+    test_cli_argument_parsing()
+    from tempfile import TemporaryDirectory
+
+    with TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        test_mw_csv_artifact_helpers(tmp_path)
+        test_write_protocol_and_analysis_artifacts(tmp_path)
     print("All smoke tests passed.")

@@ -10,6 +10,7 @@ import tomllib
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -23,6 +24,7 @@ from qbanknote.data import load_fold_arrays
 from qbanknote.iqm import build_iqm_estimator_model, calibration_set_id
 from qbanknote.model import HybridModel
 from qbanknote.paths import find_project_root
+from qbanknote.progress import report_progress
 from qbanknote.weights import load_checkpoint_connector, load_checkpoint_hybrid, metric_weight_path
 
 ANSATZ_NAMES = ("odra", "simulator")
@@ -436,6 +438,16 @@ def summarize_results(
     return pd.DataFrame(rows)
 
 
+def count_statevector_tasks(spec: PhaseSpec) -> int:
+    return len(spec.folds) * len(ANSATZ_NAMES)
+
+
+def count_hardware_tasks(spec: PhaseSpec) -> int:
+    if not spec.run_iqm_hardware:
+        return 0
+    return len(spec.folds) * len(spec.shots) * spec.repeats * len(ANSATZ_NAMES)
+
+
 def iter_hardware_tasks(spec: PhaseSpec) -> list[dict[str, int | str]]:
     rng = random.Random(spec.random_seed)
     tasks: list[dict[str, int | str]] = []
@@ -486,6 +498,38 @@ def retry_wait_seconds(
     return min(initial_wait_seconds * (2 ** max(attempt - 1, 0)), max_wait_seconds)
 
 
+def build_failed_hardware_row(
+    spec: PhaseSpec,
+    *,
+    fold: int,
+    ansatz_name: str,
+    shots: int,
+    repeat_index: int,
+    root: Path | None = None,
+) -> dict[str, Any]:
+    checkpoint = weight_path(spec, ansatz_name, fold, root=root)
+    return {
+        "timestamp_utc": datetime.now(tz=timezone.utc).isoformat(),
+        "status": "failed",
+        "phase": spec.phase,
+        "depth": spec.depth,
+        "fold": fold,
+        "ansatz": ansatz_name,
+        "shots": shots,
+        "repeat_index": repeat_index,
+        "accuracy": float("nan"),
+        "f1": float("nan"),
+        "weight_path": str(checkpoint),
+        "test_csv": str(fold_test_csv_path(spec, fold, root=root)),
+        "n_samples": int(len(load_fold_test_data(spec, fold, root=root)[1])),
+        "qpu_time_total": 0.0,
+        "wall_time_forward_s": 0.0,
+        "calibration_set_id": None,
+        "optimization_level": spec.optimization_level,
+        "seed_transpiler": spec.seed_transpiler,
+    }
+
+
 def run_cv_experiment(
     spec: PhaseSpec,
     run_dir: Path,
@@ -496,6 +540,9 @@ def run_cv_experiment(
     retry_wait_seconds_initial: float = 60.0,
     retry_wait_seconds_max: float = 600.0,
     root: Path | None = None,
+    verbose: bool = False,
+    progress_callback: Callable[[str, int, int], None] | None = None,
+    persist_failed_hardware_rows: bool = True,
 ) -> Path:
     """Execute statevector baseline and optional IQM hardware tasks with resumable CSVs."""
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -508,6 +555,17 @@ def run_cv_experiment(
     statevector_df = read_csv_or_empty(statevector_csv)
     run_df = read_csv_or_empty(runs_csv)
 
+    sv_total = count_statevector_tasks(spec)
+    sv_completed = 0
+    if not statevector_df.empty:
+        for fold in spec.folds:
+            for ansatz_name in ANSATZ_NAMES:
+                existing = statevector_df[
+                    (statevector_df["fold"] == int(fold)) & (statevector_df["ansatz"] == ansatz_name)
+                ]
+                if not existing.empty:
+                    sv_completed += 1
+
     for fold in spec.folds:
         for ansatz_name in ANSATZ_NAMES:
             if not statevector_df.empty:
@@ -517,9 +575,13 @@ def run_cv_experiment(
                 if not existing.empty:
                     continue
 
+            if verbose:
+                print(f"Statevector fold={fold} ansatz={ansatz_name}", flush=True)
             row = compute_statevector_row(spec, fold, ansatz_name, root=root)
             append_csv_row(statevector_csv, row)
             statevector_df = read_csv_or_empty(statevector_csv)
+            sv_completed += 1
+            report_progress(progress_callback, "statevector", sv_completed, sv_total)
             summary_df = summarize_results(spec, statevector_df=statevector_df, run_df=run_df)
             summary_df.to_csv(summary_csv, index=False)
 
@@ -531,13 +593,24 @@ def run_cv_experiment(
 
         done = completed_task_keys(run_df)
         tasks = iter_hardware_tasks(spec)
+        hw_total = count_hardware_tasks(spec)
+        hw_completed = len(done)
 
         for index, task in enumerate(tasks, start=1):
             task_key = (task["fold"], task["ansatz"], task["shots"], task["repeat_index"])
             if task_key in done:
                 continue
 
+            if verbose:
+                print(
+                    f"Hardware fold={task['fold']} ansatz={task['ansatz']} "
+                    f"shots={task['shots']} repeat={task['repeat_index']}",
+                    flush=True,
+                )
+
             max_attempts = hardware_retries + 1
+            row: dict[str, Any] | None = None
+            last_exc: Exception | None = None
             for attempt in range(1, max_attempts + 1):
                 try:
                     row = compute_hardware_row(
@@ -553,18 +626,44 @@ def run_cv_experiment(
                 except KeyboardInterrupt:
                     raise
                 except Exception as exc:
+                    last_exc = exc
                     retryable = is_retryable_hardware_error(exc)
                     if attempt >= max_attempts or not retryable:
+                        if persist_failed_hardware_rows:
+                            row = build_failed_hardware_row(
+                                spec,
+                                fold=int(task["fold"]),
+                                ansatz_name=str(task["ansatz"]),
+                                shots=int(task["shots"]),
+                                repeat_index=int(task["repeat_index"]),
+                                root=root,
+                            )
+                            if verbose:
+                                print(f"Hardware task failed: {exc}", flush=True)
+                            break
                         raise
                     wait_seconds = retry_wait_seconds(
                         attempt,
                         initial_wait_seconds=retry_wait_seconds_initial,
                         max_wait_seconds=retry_wait_seconds_max,
                     )
+                    if verbose:
+                        print(
+                            f"Retryable hardware error (attempt {attempt}/{max_attempts}): {exc}; "
+                            f"waiting {wait_seconds:.0f}s",
+                            flush=True,
+                        )
                     time.sleep(wait_seconds)
+
+            if row is None:
+                raise RuntimeError("Hardware task did not produce a result row") from last_exc
+
             append_csv_row(runs_csv, row)
             run_df = read_csv_or_empty(runs_csv)
-            done.add(task_key)
+            if row.get("status") == "success":
+                done.add(task_key)
+            hw_completed += 1
+            report_progress(progress_callback, "hardware", hw_completed, hw_total)
             summary_df = summarize_results(spec, statevector_df=statevector_df, run_df=run_df)
             summary_df.to_csv(summary_csv, index=False)
 

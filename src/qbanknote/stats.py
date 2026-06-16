@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 import math
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -23,6 +24,8 @@ __all__ = [
     "summarize_across_folds",
     "select_protocol_from_pilot",
     "analyze_final_summary",
+    "write_protocol_artifacts",
+    "write_analysis_artifacts",
 ]
 
 
@@ -368,3 +371,38 @@ def analyze_final_summary(summary_df: pd.DataFrame) -> dict[str, pd.DataFrame]:
         "shot_stability": shot_stability,
         "shot_stability_aggregate": shot_stability_aggregate,
     }
+
+
+def write_protocol_artifacts(run_dir: Path, protocol: dict[str, object]) -> Path:
+    """Write protocol recommendation JSON and shot-stability CSVs to a pilot run directory."""
+    run_dir = Path(run_dir)
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    shot_stability = protocol.get("shot_stability")
+    if isinstance(shot_stability, pd.DataFrame) and not shot_stability.empty:
+        shot_stability.to_csv(run_dir / "shot_stability.csv", index=False)
+
+    shot_stability_aggregate = protocol.get("shot_stability_aggregate")
+    if isinstance(shot_stability_aggregate, pd.DataFrame) and not shot_stability_aggregate.empty:
+        shot_stability_aggregate.to_csv(run_dir / "shot_stability_aggregate.csv", index=False)
+
+    report = {
+        key: value
+        for key, value in protocol.items()
+        if not isinstance(value, pd.DataFrame)
+    }
+    report_path = run_dir / "protocol_recommendation.json"
+    report_path.write_text(
+        __import__("json").dumps(report, indent=2, sort_keys=True) + "\n"
+    )
+    return report_path
+
+
+def write_analysis_artifacts(run_dir: Path, analysis: dict[str, pd.DataFrame]) -> Path:
+    """Write final-analysis CSV artifacts into a run directory."""
+    run_dir = Path(run_dir)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    for name, frame in analysis.items():
+        if frame is not None and not frame.empty:
+            frame.to_csv(run_dir / f"{name}.csv", index=False)
+    return run_dir
