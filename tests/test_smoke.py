@@ -26,10 +26,18 @@ from qbanknote.ansatzes import (  # noqa: E402
 from qbanknote.data import load_fold_arrays, set_random_seed  # noqa: E402
 from qbanknote.metrics import (  # noqa: E402
     bloch_row_to_score_row,
+    choose_mw_samples,
+    choose_mw_shots,
     completed_mw_jobs,
+    compute_mw_iteration_stability,
+    compute_mw_sample_precision,
+    compute_mw_shot_stability,
+    mw_mean_shot_noise_bound,
+    mw_shot_noise_sd_bound,
     run_kl_self_check,
     run_mw_self_check,
     summary_row_from_result,
+    write_mw_protocol_artifacts,
 )
 from qbanknote.model import HybridModel  # noqa: E402
 from qbanknote.paths import find_project_root  # noqa: E402
@@ -279,6 +287,105 @@ def test_mw_csv_artifact_helpers(tmp_path: Path) -> None:
     assert "mw_score" in scores_df.columns
 
 
+def test_mw_protocol_precision_helpers(tmp_path: Path) -> None:
+    assert 0.013 < mw_shot_noise_sd_bound(5, 4096) < 0.015
+    assert mw_mean_shot_noise_bound(5, 4096, 20) < 0.004
+
+    shot_summary = pd.DataFrame(
+        [
+            {"ansatz": "ansatz_odra", "depth": 2, "n_samples": 10, "shots": 512, "mw_avg": 0.50},
+            {"ansatz": "ansatz_odra", "depth": 2, "n_samples": 10, "shots": 1024, "mw_avg": 0.515},
+            {"ansatz": "ansatz_odra", "depth": 2, "n_samples": 10, "shots": 2048, "mw_avg": 0.517},
+            {"ansatz": "ansatz_simulator", "depth": 2, "n_samples": 10, "shots": 512, "mw_avg": 0.40},
+            {"ansatz": "ansatz_simulator", "depth": 2, "n_samples": 10, "shots": 1024, "mw_avg": 0.411},
+            {"ansatz": "ansatz_simulator", "depth": 2, "n_samples": 10, "shots": 2048, "mw_avg": 0.412},
+        ]
+    )
+    detailed, aggregate = compute_mw_shot_stability(shot_summary)
+    assert not detailed.empty
+    assert not aggregate.empty
+    assert choose_mw_shots(shot_summary, tolerance=0.02) == 1024
+
+    sample_summary = pd.DataFrame(
+        [
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "shots": 1024,
+                "n_samples": 10,
+                "mw_std": 0.08,
+                "mw_sem": 0.08 / np.sqrt(10),
+            },
+            {
+                "ansatz": "ansatz_simulator",
+                "depth": 2,
+                "shots": 1024,
+                "n_samples": 10,
+                "mw_std": 0.07,
+                "mw_sem": 0.07 / np.sqrt(10),
+            },
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "shots": 1024,
+                "n_samples": 40,
+                "mw_std": 0.08,
+                "mw_sem": 0.08 / np.sqrt(40),
+            },
+            {
+                "ansatz": "ansatz_simulator",
+                "depth": 2,
+                "shots": 1024,
+                "n_samples": 40,
+                "mw_std": 0.07,
+                "mw_sem": 0.07 / np.sqrt(40),
+            },
+        ]
+    )
+    precision, precision_aggregate = compute_mw_sample_precision(
+        sample_summary,
+        target_half_width=0.03,
+    )
+    assert not precision.empty
+    assert not precision_aggregate.empty
+    assert choose_mw_samples(sample_summary, target_half_width=0.03) == 40
+
+    iteration_summary = pd.DataFrame(
+        [
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "shots": 1024,
+                "n_samples": 40,
+                "iteration": 1,
+                "mw_avg": 0.5,
+            },
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "shots": 1024,
+                "n_samples": 40,
+                "iteration": 2,
+                "mw_avg": 0.52,
+            },
+        ]
+    )
+    iteration_stability = compute_mw_iteration_stability(iteration_summary)
+    assert float(iteration_stability["iteration_std_mw_avg"].iloc[0]) > 0
+
+    report_path = write_mw_protocol_artifacts(
+        tmp_path,
+        recommendation={"chosen_shots": 1024, "chosen_n_samples": 40},
+        frames={
+            "shot_stability": detailed,
+            "sample_precision": precision,
+            "iteration_stability": iteration_stability,
+        },
+    )
+    assert report_path.exists()
+    assert (tmp_path / "shot_stability.csv").exists()
+
+
 def _synthetic_summary_df() -> pd.DataFrame:
     rows = []
     for fold in (1, 2, 3):
@@ -424,6 +531,7 @@ def test_cli_argument_parsing() -> None:
 
     scripts = [
         "run_iqm_meyer_wallach.py",
+        "run_iqm_mw_pilot.py",
         "run_iqm_metric_test.py",
         "select_iqm_metric_protocol.py",
         "analyze_iqm_metric_test.py",
@@ -463,5 +571,6 @@ if __name__ == "__main__":
     with TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         test_mw_csv_artifact_helpers(tmp_path)
+        test_mw_protocol_precision_helpers(tmp_path)
         test_write_protocol_and_analysis_artifacts(tmp_path)
     print("All smoke tests passed.")

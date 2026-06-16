@@ -394,6 +394,211 @@ def run_iqm_mw_sweep(
     return output_dir
 
 
+def mw_shot_noise_sd_bound(n_qubits: int, shots: int) -> float:
+    """Worst-case delta-method bound for shot noise in one MW estimate."""
+    if n_qubits <= 0 or shots <= 0:
+        raise ValueError("n_qubits and shots must be positive")
+    return float(2.0 / math.sqrt(n_qubits * shots))
+
+
+def mw_mean_shot_noise_bound(n_qubits: int, shots: int, n_samples: int) -> float:
+    """Shot-noise contribution after averaging MW scores over parameter samples."""
+    if n_samples <= 0:
+        raise ValueError("n_samples must be positive")
+    return float(mw_shot_noise_sd_bound(n_qubits, shots) / math.sqrt(n_samples))
+
+
+def mw_confidence_half_width(std: float, n_samples: int, z_value: float = 1.96) -> float:
+    if n_samples <= 0:
+        raise ValueError("n_samples must be positive")
+    return float(z_value * float(std) / math.sqrt(n_samples))
+
+
+def required_mw_samples(std: float, target_half_width: float, z_value: float = 1.96) -> int:
+    if target_half_width <= 0:
+        raise ValueError("target_half_width must be positive")
+    std = max(float(std), 0.0)
+    if std == 0.0:
+        return 1
+    return int(math.ceil(((z_value * std) / target_half_width) ** 2))
+
+
+def read_mw_summary(run_dir: Path, *, stage: str | None = None, iteration: int | None = None) -> np.ndarray:
+    frame = read_csv_or_empty(Path(run_dir) / "iqm_mw_results.csv")
+    if frame.empty:
+        return frame
+    frame = frame.copy()
+    frame["run_dir"] = str(Path(run_dir))
+    frame["run_id"] = Path(run_dir).name
+    if stage is not None:
+        frame["stage"] = stage
+    if iteration is not None:
+        frame["iteration"] = int(iteration)
+    return frame
+
+
+def compute_mw_shot_stability(summary_df) -> tuple[object, object]:
+    """Compare consecutive shot budgets for each ansatz/depth/sample setting."""
+    if summary_df.empty or "shots" not in summary_df.columns:
+        return summary_df.iloc[0:0].copy(), summary_df.iloc[0:0].copy()
+
+    rows = []
+    group_cols = ["ansatz", "depth", "n_samples"]
+    for keys, group in summary_df.groupby(group_cols, dropna=False):
+        ansatz, depth, n_samples = keys
+        ordered_shots = sorted(int(v) for v in group["shots"].dropna().unique())
+        for previous_shot, current_shot in zip(ordered_shots[:-1], ordered_shots[1:]):
+            prev = group[group["shots"] == previous_shot]
+            curr = group[group["shots"] == current_shot]
+            if prev.empty or curr.empty:
+                continue
+            prev_row = prev.iloc[0]
+            curr_row = curr.iloc[0]
+            rows.append(
+                {
+                    "ansatz": ansatz,
+                    "depth": int(depth),
+                    "n_samples": int(n_samples),
+                    "previous_shot": previous_shot,
+                    "current_shot": current_shot,
+                    "mw_avg_previous": float(prev_row["mw_avg"]),
+                    "mw_avg_current": float(curr_row["mw_avg"]),
+                    "abs_change_mw_avg": abs(float(curr_row["mw_avg"]) - float(prev_row["mw_avg"])),
+                }
+            )
+
+    import pandas as pd
+
+    detailed = pd.DataFrame(rows)
+    if detailed.empty:
+        return detailed, pd.DataFrame()
+
+    aggregate_rows = []
+    for keys, group in detailed.groupby(["previous_shot", "current_shot"], dropna=False):
+        previous_shot, current_shot = keys
+        aggregate_rows.append(
+            {
+                "previous_shot": int(previous_shot),
+                "current_shot": int(current_shot),
+                "mean_abs_change_mw_avg": float(group["abs_change_mw_avg"].mean()),
+                "max_abs_change_mw_avg": float(group["abs_change_mw_avg"].max()),
+            }
+        )
+    return detailed, pd.DataFrame(aggregate_rows)
+
+
+def choose_mw_shots(summary_df, *, tolerance: float) -> int:
+    if tolerance <= 0:
+        raise ValueError("tolerance must be positive")
+    if summary_df.empty:
+        raise ValueError("MW pilot summary is empty; cannot choose shots")
+    _, aggregate = compute_mw_shot_stability(summary_df)
+    if aggregate.empty:
+        return int(max(summary_df["shots"]))
+    for row in aggregate.sort_values("current_shot").itertuples(index=False):
+        if float(row.max_abs_change_mw_avg) <= tolerance:
+            return int(row.current_shot)
+    return int(max(summary_df["shots"]))
+
+
+def compute_mw_sample_precision(summary_df, *, target_half_width: float, z_value: float = 1.96):
+    if summary_df.empty:
+        return summary_df.iloc[0:0].copy(), summary_df.iloc[0:0].copy()
+    rows = []
+    for row in summary_df.itertuples(index=False):
+        half_width = mw_confidence_half_width(float(row.mw_std), int(row.n_samples), z_value)
+        rows.append(
+            {
+                "ansatz": row.ansatz,
+                "depth": int(row.depth),
+                "shots": int(row.shots),
+                "n_samples": int(row.n_samples),
+                "mw_std": float(row.mw_std),
+                "mw_sem": float(row.mw_sem),
+                "confidence_half_width": half_width,
+                "target_half_width": float(target_half_width),
+                "meets_target": bool(half_width <= target_half_width),
+                "required_n_samples": required_mw_samples(
+                    float(row.mw_std),
+                    target_half_width,
+                    z_value,
+                ),
+            }
+        )
+
+    import pandas as pd
+
+    detailed = pd.DataFrame(rows)
+    aggregate_rows = []
+    for n_samples, group in detailed.groupby("n_samples", dropna=False):
+        aggregate_rows.append(
+            {
+                "n_samples": int(n_samples),
+                "max_confidence_half_width": float(group["confidence_half_width"].max()),
+                "max_required_n_samples": int(group["required_n_samples"].max()),
+                "all_meet_target": bool(group["meets_target"].all()),
+            }
+        )
+    return detailed, pd.DataFrame(aggregate_rows).sort_values("n_samples")
+
+
+def choose_mw_samples(summary_df, *, target_half_width: float, z_value: float = 1.96) -> int:
+    if summary_df.empty:
+        raise ValueError("MW sample pilot summary is empty; cannot choose n_samples")
+    _, aggregate = compute_mw_sample_precision(
+        summary_df,
+        target_half_width=target_half_width,
+        z_value=z_value,
+    )
+    for row in aggregate.sort_values("n_samples").itertuples(index=False):
+        if bool(row.all_meet_target):
+            return int(row.n_samples)
+    return int(aggregate["max_required_n_samples"].max())
+
+
+def compute_mw_iteration_stability(summary_df):
+    if summary_df.empty or "iteration" not in summary_df.columns:
+        return summary_df.iloc[0:0].copy()
+
+    import pandas as pd
+
+    rows = []
+    for keys, group in summary_df.groupby(["ansatz", "depth", "shots", "n_samples"], dropna=False):
+        ansatz, depth, shots, n_samples = keys
+        rows.append(
+            {
+                "ansatz": ansatz,
+                "depth": int(depth),
+                "shots": int(shots),
+                "n_samples": int(n_samples),
+                "iterations": int(group["iteration"].nunique()),
+                "iteration_mean_mw_avg": float(group["mw_avg"].mean()),
+                "iteration_std_mw_avg": float(group["mw_avg"].std(ddof=1)) if len(group) > 1 else 0.0,
+                "iteration_min_mw_avg": float(group["mw_avg"].min()),
+                "iteration_max_mw_avg": float(group["mw_avg"].max()),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def write_mw_protocol_artifacts(
+    run_dir: Path,
+    *,
+    recommendation: dict[str, object],
+    frames: dict[str, object],
+) -> Path:
+    import pandas as pd
+
+    run_dir = Path(run_dir)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    for name, frame in frames.items():
+        if isinstance(frame, pd.DataFrame) and not frame.empty:
+            frame.to_csv(run_dir / f"{name}.csv", index=False)
+    path = run_dir / "mw_protocol_recommendation.json"
+    path.write_text(json.dumps(recommendation, indent=2, sort_keys=True) + "\n")
+    return path
+
+
 def verify_mw_implementation() -> None:
     n = 3
     product = np.zeros(2**n, dtype=complex)
