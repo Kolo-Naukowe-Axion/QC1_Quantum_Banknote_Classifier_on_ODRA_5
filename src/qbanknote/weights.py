@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import glob
+import importlib
+import pickle
 import re
 from pathlib import Path
 from typing import Literal
@@ -10,6 +12,7 @@ from typing import Literal
 import numpy as np
 import torch
 from qiskit import QuantumCircuit
+from qiskit_machine_learning.connectors import TorchConnector
 
 from qbanknote.ansatzes import (
     LEGACY_PARAM_COUNTS,
@@ -23,6 +26,7 @@ from qbanknote.model import HybridModel
 from qbanknote.paths import find_project_root
 
 ModelName = Literal["Odra", "Simulator"]
+AnsatzKey = Literal["odra", "simulator"]
 Condition = Literal["Ideal", "Noise"]
 
 
@@ -41,16 +45,98 @@ def cv_weight_path(
     *,
     epoch: int = 30,
     condition: Condition = "Ideal",
+    simulator_uses_ideal_suffix: bool = False,
     root: Path | None = None,
 ) -> Path:
     """Canonical path to a CV checkpoint."""
     if condition == "Ideal":
-        filename = f"{model_name}_fold_{fold}_depth_{depth}_epoch_{epoch}_weights.pth"
+        if model_name == "Simulator" and simulator_uses_ideal_suffix:
+            filename = (
+                f"{model_name}_fold_{fold}_depth_{depth}_epoch_{epoch}_ideal_weights.pth"
+            )
+        else:
+            filename = f"{model_name}_fold_{fold}_depth_{depth}_epoch_{epoch}_weights.pth"
     else:
         filename = (
             f"{model_name}_fold_{fold}_depth_{depth}_noise_epoch_{epoch}_weights.pth"
         )
     return cv_weights_dir(root) / f"depth {depth}" / model_name / f"fold_{fold}" / filename
+
+
+def metric_model_name(ansatz_name: AnsatzKey) -> ModelName:
+    return "Odra" if ansatz_name == "odra" else "Simulator"
+
+
+def metric_weight_path(
+    depth: int,
+    ansatz_name: AnsatzKey,
+    fold: int,
+    *,
+    epoch: int = 30,
+    simulator_uses_ideal_suffix: bool = False,
+    root: Path | None = None,
+) -> Path:
+    """Checkpoint path used by the IQM metric test workflow."""
+    return cv_weight_path(
+        depth,
+        metric_model_name(ansatz_name),
+        fold,
+        epoch=epoch,
+        condition="Ideal",
+        simulator_uses_ideal_suffix=simulator_uses_ideal_suffix and ansatz_name == "simulator",
+        root=root,
+    )
+
+
+def _torch_load(path: Path):
+    if torch.__dict__.get("_utils") is None:
+        torch.__dict__["_utils"] = importlib.import_module("torch._utils")
+
+    try:
+        return torch.load(path, map_location="cpu", weights_only=True)
+    except TypeError:
+        return torch.load(path, map_location="cpu")
+    except (AttributeError, pickle.UnpicklingError):
+        return torch.load(path, map_location="cpu", weights_only=False)
+
+
+def _unwrap_state_dict(obj):
+    if isinstance(obj, dict) and "state_dict" in obj and isinstance(obj["state_dict"], dict):
+        return obj["state_dict"]
+    return obj
+
+
+def strip_quantum_layer_prefix(state: dict) -> dict:
+    out = {}
+    for key, value in state.items():
+        if key.startswith("quantum_layer."):
+            out[key.replace("quantum_layer.", "", 1)] = value
+        else:
+            out[key] = value
+    return out
+
+
+def load_checkpoint_hybrid(model: HybridModel, path: str | Path) -> None:
+    """Load a checkpoint into a ``HybridModel``, tolerating nested state dicts."""
+    raw = _unwrap_state_dict(_torch_load(Path(path)))
+    if not isinstance(raw, dict):
+        raise TypeError(f"Expected dict checkpoint at {path}")
+    try:
+        model.load_state_dict(raw, strict=True)
+        return
+    except Exception:
+        pass
+    stripped = strip_quantum_layer_prefix(raw)
+    model.quantum_layer.load_state_dict(stripped, strict=True)
+
+
+def load_checkpoint_connector(connector: TorchConnector, path: str | Path) -> None:
+    """Load a checkpoint into a bare ``TorchConnector``."""
+    raw = _unwrap_state_dict(_torch_load(Path(path)))
+    if not isinstance(raw, dict):
+        raise TypeError(f"Expected dict checkpoint at {path}")
+    stripped = strip_quantum_layer_prefix(raw)
+    connector.load_state_dict(stripped, strict=True)
 
 
 def discover_epoch_weights(

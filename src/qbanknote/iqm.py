@@ -5,6 +5,7 @@ from __future__ import annotations
 import getpass
 import os
 import time
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -12,6 +13,11 @@ from qiskit import QuantumCircuit, transpile
 from qiskit.primitives import PrimitiveResult, PubResult
 from qiskit.primitives.base import BaseEstimatorV2
 from qiskit.primitives.containers.data_bin import DataBin
+from qiskit.quantum_info import SparsePauliOp
+from qiskit_machine_learning.connectors import TorchConnector
+from qiskit_machine_learning.neural_networks import EstimatorQNN
+
+from qbanknote.model import HybridModel
 
 try:
     from iqm.qiskit_iqm import transpile_to_IQM as _iqm_transpile
@@ -40,6 +46,26 @@ class IQMBackendEstimator(BaseEstimatorV2):
         self._options = options or {"shots": 100}
         self.timestamp_history: list[dict[str, Any]] = []
         self.total_qpu_time = 0.0
+        self.failed_batches: list[dict[str, Any]] = []
+
+    def _transpile_kwargs(self) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
+            "optimization_level": self._options.get("optimization_level", 3)
+        }
+        seed = self._options.get("seed_transpiler")
+        if seed is not None:
+            kwargs["seed_transpiler"] = seed
+        return kwargs
+
+    def _transpile_for_backend(self, circuit: QuantumCircuit) -> QuantumCircuit:
+        kwargs = self._transpile_kwargs()
+        if (
+            _iqm_transpile is not None
+            and _IQMBackendBase is not None
+            and isinstance(self._backend, _IQMBackendBase)
+        ):
+            return _iqm_transpile(circuit, self._backend, **kwargs)
+        return transpile(circuit, self._backend, **kwargs)
 
     def _extract_timestamps(self, result) -> dict[str, Any] | None:
         try:
@@ -62,6 +88,7 @@ class IQMBackendEstimator(BaseEstimatorV2):
         if not isinstance(pubs, list):
             pubs = [pubs]
 
+        self.failed_batches = []
         job_results = []
         shots_opt = self._options["shots"]
         max_circuits = self._options.get("max_circuits_per_job")
@@ -70,7 +97,7 @@ class IQMBackendEstimator(BaseEstimatorV2):
         circuit_with_meas = base_circuit.copy()
         if circuit_with_meas.num_clbits == 0:
             circuit_with_meas.measure_all()
-        transpiled_qc = transpile(circuit_with_meas, self._backend, optimization_level=3)
+        transpiled_qc = self._transpile_for_backend(circuit_with_meas)
 
         for pub in pubs:
             _, observables, parameter_values = pub
@@ -127,6 +154,14 @@ class IQMBackendEstimator(BaseEstimatorV2):
                     for counts in counts_list:
                         pub_expectations.append(self._counts_to_expectation(counts))
                 except Exception as exc:
+                    self.failed_batches.append(
+                        {
+                            "start": start,
+                            "end": end,
+                            "n_circuits": len(batch),
+                            "error": str(exc),
+                        }
+                    )
                     print(f"Batch job failed: {exc}")
                     pub_expectations.extend([0.0] * len(batch))
 
@@ -201,6 +236,73 @@ class IQMBackendEstimator(BaseEstimatorV2):
         print(f"Others:            {other * 1000:8.2f} ms")
         print(f"\nTIME OVERALL:       {total_job * 1000:8.2f} ms ({total_job:.3f} s)")
         print("=" * 60 + "\n")
+
+
+def calibration_set_id(result) -> str | None:
+    """Return calibration set id if the provider exposes it."""
+    for path in (
+        lambda r: getattr(r, "parameters", None),
+        lambda r: getattr(r, "metadata", None),
+        lambda r: getattr(r, "_metadata", None),
+    ):
+        try:
+            obj = path(result)
+            if obj is None:
+                continue
+            if isinstance(obj, dict):
+                cid = obj.get("calibration_set_id") or obj.get("calibration_set")
+                if cid is not None:
+                    return str(cid)
+            cid = getattr(obj, "calibration_set_id", None)
+            if cid is not None:
+                return str(cid)
+        except Exception:
+            continue
+    return None
+
+
+def build_iqm_estimator_model(
+    iqm_backend,
+    ansatz_fn: Callable[[int, int], QuantumCircuit],
+    *,
+    num_qubits: int,
+    depth: int,
+    shots: int,
+    optimization_level: int = 1,
+    seed_transpiler: int | None = None,
+    random_seed: int = 42,
+    max_circuits_per_job: int | None = None,
+):
+    """Build a ``TorchConnector`` QNN that forwards on IQM hardware."""
+    estimator_options: dict[str, Any] = {
+        "shots": shots,
+        "optimization_level": optimization_level,
+    }
+    if seed_transpiler is not None:
+        estimator_options["seed_transpiler"] = seed_transpiler
+    if max_circuits_per_job is not None:
+        estimator_options["max_circuits_per_job"] = max_circuits_per_job
+
+    hw_estimator = IQMBackendEstimator(iqm_backend, options=estimator_options)
+    hw_ansatz = ansatz_fn(num_qubits, depth)
+    hw_feature_map = HybridModel(
+        hw_ansatz, num_qubits, random_seed=random_seed, gradient_backend="param_shift"
+    ).angle_encoding(num_qubits)
+
+    hw_qc = QuantumCircuit(num_qubits)
+    hw_qc.compose(hw_feature_map, qubits=range(num_qubits), inplace=True)
+    hw_qc.compose(hw_ansatz, inplace=True)
+
+    observable = SparsePauliOp.from_list([("I" * (num_qubits - 1) + "Z", 1)])
+    hw_qnn = EstimatorQNN(
+        circuit=hw_qc,
+        observables=observable,
+        input_params=list(hw_feature_map.parameters),
+        weight_params=list(hw_ansatz.parameters),
+        estimator=hw_estimator,
+    )
+    hw_model = TorchConnector(hw_qnn)
+    return hw_model, hw_estimator
 
 
 def connect_to_iqm_backend(iqm_url: str, token: str | None = None):
