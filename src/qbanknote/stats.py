@@ -10,7 +10,13 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from qbanknote.evaluation import ANSATZ_NAMES, PhaseSpec
+from qbanknote.evaluation import (
+    ANSATZ_NAMES,
+    ODRA_ANSATZ_NAME,
+    SIMULATOR_ANSATZ_NAME,
+    PhaseSpec,
+    normalize_ansatz_labels,
+)
 
 __all__ = [
     "average_ranks",
@@ -103,6 +109,7 @@ def summarize_across_folds(summary_df: pd.DataFrame) -> pd.DataFrame:
     if summary_df.empty:
         return pd.DataFrame()
 
+    summary_df = normalize_ansatz_labels(summary_df)
     group_cols = ["phase", "depth", "ansatz", "eval_shots"]
     rows = []
     for keys, group in summary_df.groupby(group_cols, dropna=False):
@@ -135,14 +142,15 @@ def compute_paired_fold_differences(summary_df: pd.DataFrame) -> pd.DataFrame:
     if summary_df.empty:
         return pd.DataFrame()
 
+    summary_df = normalize_ansatz_labels(summary_df)
     rows: list[dict[str, Any]] = []
     group_cols = ["phase", "depth", "eval_shots", "fold"]
     for keys, group in summary_df.groupby(group_cols, dropna=False):
         phase, depth, eval_shots, fold = keys
         if set(group["ansatz"]) != set(ANSATZ_NAMES):
             continue
-        odra = group[group["ansatz"] == "odra"].iloc[0]
-        simulator = group[group["ansatz"] == "simulator"].iloc[0]
+        odra = group[group["ansatz"] == ODRA_ANSATZ_NAME].iloc[0]
+        simulator = group[group["ansatz"] == SIMULATOR_ANSATZ_NAME].iloc[0]
         rows.append(
             {
                 "phase": phase,
@@ -218,6 +226,7 @@ def compute_shot_stability(summary_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.D
     if summary_df.empty:
         return pd.DataFrame(), pd.DataFrame()
 
+    summary_df = normalize_ansatz_labels(summary_df)
     rows = []
     shots_values = sorted(int(v) for v in summary_df["eval_shots"].dropna().unique())
     if len(shots_values) < 2:
@@ -272,6 +281,7 @@ def compute_shot_stability(summary_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.D
 
 
 def choose_shot_from_pilot(summary_df: pd.DataFrame, spec: PhaseSpec) -> int:
+    summary_df = normalize_ansatz_labels(summary_df)
     _, aggregate = compute_shot_stability(summary_df)
     if aggregate.empty:
         return int(spec.shots[-1])
@@ -288,6 +298,7 @@ def choose_shot_from_pilot(summary_df: pd.DataFrame, spec: PhaseSpec) -> int:
 def recommended_repeats_from_pilot(
     summary_df: pd.DataFrame, chosen_shot: int, spec: PhaseSpec
 ) -> dict[str, int]:
+    summary_df = normalize_ansatz_labels(summary_df)
     shot_rows = summary_df[
         (summary_df["eval_shots"] == chosen_shot) & (summary_df["completed_repeats"] > 0)
     ]
@@ -321,6 +332,7 @@ def select_protocol_from_pilot(
     if summary_df.empty:
         raise ValueError("Pilot summary is empty; cannot select protocol.")
 
+    summary_df = normalize_ansatz_labels(summary_df)
     if require_complete:
         incomplete = summary_df[summary_df["completed_repeats"] < spec.repeats]
         if not incomplete.empty:
@@ -360,6 +372,7 @@ def analyze_final_summary(summary_df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     if summary_df.empty:
         raise ValueError("summary_comparison.csv is empty; nothing to analyze.")
 
+    summary_df = normalize_ansatz_labels(summary_df)
     ansatz_level = summarize_across_folds(summary_df)
     paired_differences = compute_paired_fold_differences(summary_df)
     paired_tests = compute_paired_tests(paired_differences)

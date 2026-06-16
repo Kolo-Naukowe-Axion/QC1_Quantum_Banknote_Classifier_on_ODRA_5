@@ -27,7 +27,20 @@ from qbanknote.paths import find_project_root
 from qbanknote.progress import report_progress
 from qbanknote.weights import load_checkpoint_connector, load_checkpoint_hybrid, metric_weight_path
 
-ANSATZ_NAMES = ("odra", "simulator")
+ANSATZ_KEYS = ("odra", "simulator")
+ODRA_ANSATZ_NAME = "ansatz_odra"
+SIMULATOR_ANSATZ_NAME = "ansatz_simulator"
+ANSATZ_NAMES = (ODRA_ANSATZ_NAME, SIMULATOR_ANSATZ_NAME)
+ANSATZ_ALIASES = {
+    "odra": "odra",
+    ODRA_ANSATZ_NAME: "odra",
+    "simulator": "simulator",
+    SIMULATOR_ANSATZ_NAME: "simulator",
+}
+ANSATZ_LABELS = {
+    "odra": ODRA_ANSATZ_NAME,
+    "simulator": SIMULATOR_ANSATZ_NAME,
+}
 RUN_LEVEL_COLUMNS = [
     "timestamp_utc",
     "status",
@@ -92,10 +105,30 @@ class PhaseSpec:
     target_half_width_f1: float
 
 
+def ansatz_key(name: str) -> str:
+    try:
+        return ANSATZ_ALIASES[name]
+    except KeyError as exc:
+        raise KeyError(f"Unknown ansatz: {name}") from exc
+
+
+def canonical_ansatz_name(name: str) -> str:
+    return ANSATZ_LABELS[ansatz_key(name)]
+
+
+def normalize_ansatz_labels(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or "ansatz" not in df.columns:
+        return df
+    out = df.copy()
+    out["ansatz"] = out["ansatz"].map(lambda value: canonical_ansatz_name(str(value)))
+    return out
+
+
 def ansatz_factory(name: str):
-    if name == "odra":
+    key = ansatz_key(name)
+    if key == "odra":
         return odra_ansatz
-    if name == "simulator":
+    if key == "simulator":
         return simulator_ansatz
     raise KeyError(f"Unknown ansatz: {name}")
 
@@ -181,7 +214,7 @@ def fold_test_csv_path(spec: PhaseSpec, fold: int, *, root: Path | None = None) 
 def weight_path(spec: PhaseSpec, ansatz_name: str, fold: int, *, root: Path | None = None) -> Path:
     return metric_weight_path(
         spec.depth,
-        ansatz_name,
+        ansatz_key(ansatz_name),
         fold,
         epoch=spec.checkpoint_epoch,
         simulator_uses_ideal_suffix=spec.simulator_uses_ideal_suffix,
@@ -292,7 +325,7 @@ def compute_statevector_row(
         "phase": spec.phase,
         "depth": spec.depth,
         "fold": fold,
-        "ansatz": ansatz_name,
+        "ansatz": canonical_ansatz_name(ansatz_name),
         "statevector_accuracy": metrics["accuracy"],
         "statevector_f1": metrics["f1"],
         "test_csv": str(fold_test_csv_path(spec, fold, root=root)),
@@ -353,7 +386,7 @@ def compute_hardware_row(
         "phase": spec.phase,
         "depth": spec.depth,
         "fold": fold,
-        "ansatz": ansatz_name,
+        "ansatz": canonical_ansatz_name(ansatz_name),
         "shots": shots,
         "repeat_index": repeat_index,
         "accuracy": metrics["accuracy"],
@@ -378,9 +411,9 @@ def summarize_results(
     if statevector_df.empty:
         return pd.DataFrame()
 
-    statevector_rows = statevector_df.copy()
+    statevector_rows = normalize_ansatz_labels(statevector_df)
     statevector_rows["fold"] = statevector_rows["fold"].astype(int)
-    successful_runs = successful_run_df(run_df)
+    successful_runs = normalize_ansatz_labels(successful_run_df(run_df))
 
     rows: list[dict[str, Any]] = []
     shots_values = list(spec.shots) if spec.run_iqm_hardware else [math.nan]
@@ -479,7 +512,7 @@ def completed_task_keys(run_df: pd.DataFrame) -> set[tuple[int, str, int, int]]:
     else:
         completed = run_df
     return {
-        (int(row.fold), str(row.ansatz), int(row.shots), int(row.repeat_index))
+        (int(row.fold), canonical_ansatz_name(str(row.ansatz)), int(row.shots), int(row.repeat_index))
         for row in completed.itertuples(index=False)
     }
 
@@ -514,7 +547,7 @@ def build_failed_hardware_row(
         "phase": spec.phase,
         "depth": spec.depth,
         "fold": fold,
-        "ansatz": ansatz_name,
+        "ansatz": canonical_ansatz_name(ansatz_name),
         "shots": shots,
         "repeat_index": repeat_index,
         "accuracy": float("nan"),
@@ -552,8 +585,8 @@ def run_cv_experiment(
     runs_csv = run_dir / "run_level_results.csv"
     summary_csv = run_dir / "summary_comparison.csv"
 
-    statevector_df = read_csv_or_empty(statevector_csv)
-    run_df = read_csv_or_empty(runs_csv)
+    statevector_df = normalize_ansatz_labels(read_csv_or_empty(statevector_csv))
+    run_df = normalize_ansatz_labels(read_csv_or_empty(runs_csv))
 
     sv_total = count_statevector_tasks(spec)
     sv_completed = 0
@@ -579,7 +612,7 @@ def run_cv_experiment(
                 print(f"Statevector fold={fold} ansatz={ansatz_name}", flush=True)
             row = compute_statevector_row(spec, fold, ansatz_name, root=root)
             append_csv_row(statevector_csv, row)
-            statevector_df = read_csv_or_empty(statevector_csv)
+            statevector_df = normalize_ansatz_labels(read_csv_or_empty(statevector_csv))
             sv_completed += 1
             report_progress(progress_callback, "statevector", sv_completed, sv_total)
             summary_df = summarize_results(spec, statevector_df=statevector_df, run_df=run_df)
@@ -659,7 +692,7 @@ def run_cv_experiment(
                 raise RuntimeError("Hardware task did not produce a result row") from last_exc
 
             append_csv_row(runs_csv, row)
-            run_df = read_csv_or_empty(runs_csv)
+            run_df = normalize_ansatz_labels(read_csv_or_empty(runs_csv))
             if row.get("status") == "success":
                 done.add(task_key)
             hw_completed += 1

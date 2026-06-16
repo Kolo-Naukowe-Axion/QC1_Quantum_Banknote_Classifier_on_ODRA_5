@@ -51,9 +51,13 @@ from qbanknote.stats import (  # noqa: E402
 )
 from qbanknote.progress import make_print_callback, progress_bar  # noqa: E402
 from qbanknote.evaluation import (  # noqa: E402
+    ANSATZ_NAMES,
+    ODRA_ANSATZ_NAME,
     PhaseSpec,
+    SIMULATOR_ANSATZ_NAME,
     append_csv_row,
     build_failed_hardware_row,
+    canonical_ansatz_name,
     count_hardware_tasks,
     count_statevector_tasks,
     load_phase_spec,
@@ -173,7 +177,7 @@ def test_select_protocol_from_pilot_synthetic() -> None:
     )
     rows = []
     for fold in (1, 2):
-        for ansatz in ("odra", "simulator"):
+        for ansatz in ANSATZ_NAMES:
             for shot in (512, 1024):
                 rows.append(
                     {
@@ -278,7 +282,7 @@ def test_mw_csv_artifact_helpers(tmp_path: Path) -> None:
 def _synthetic_summary_df() -> pd.DataFrame:
     rows = []
     for fold in (1, 2, 3):
-        for ansatz in ("odra", "simulator"):
+        for ansatz in ANSATZ_NAMES:
             rows.append(
                 {
                     "phase": "final",
@@ -289,9 +293,9 @@ def _synthetic_summary_df() -> pd.DataFrame:
                     "statevector_f1": 0.88,
                     "statevector_std_accuracy": 0.0,
                     "statevector_std_f1": 0.0,
-                    "iqm_mean_accuracy": 0.85 if ansatz == "odra" else 0.84,
+                    "iqm_mean_accuracy": 0.85 if ansatz == ODRA_ANSATZ_NAME else 0.84,
                     "iqm_std_accuracy": 0.01,
-                    "iqm_mean_f1": 0.83 if ansatz == "odra" else 0.82,
+                    "iqm_mean_f1": 0.83 if ansatz == ODRA_ANSATZ_NAME else 0.82,
                     "iqm_std_f1": 0.01,
                     "eval_shots": 2048,
                     "n_repeats": 2,
@@ -341,7 +345,7 @@ def test_write_protocol_and_analysis_artifacts(tmp_path: Path) -> None:
 def _synthetic_pilot_summary() -> pd.DataFrame:
     rows = []
     for fold in (1, 2):
-        for ansatz in ("odra", "simulator"):
+        for ansatz in ANSATZ_NAMES:
             for shot in (512, 1024):
                 rows.append(
                     {
@@ -402,7 +406,16 @@ def test_task_counts_and_failed_row() -> None:
         root=ROOT,
     )
     assert failed["status"] == "failed"
+    assert failed["ansatz"] == ODRA_ANSATZ_NAME
     assert failed["qpu_time_total"] == 0.0
+
+
+def test_qce_resp_ansatz_labels() -> None:
+    assert ANSATZ_NAMES == (ODRA_ANSATZ_NAME, SIMULATOR_ANSATZ_NAME)
+    assert canonical_ansatz_name("odra") == ODRA_ANSATZ_NAME
+    assert canonical_ansatz_name("ansatz_odra") == ODRA_ANSATZ_NAME
+    assert canonical_ansatz_name("simulator") == SIMULATOR_ANSATZ_NAME
+    assert canonical_ansatz_name("ansatz_simulator") == SIMULATOR_ANSATZ_NAME
 
 
 def test_cli_argument_parsing() -> None:
@@ -443,6 +456,7 @@ if __name__ == "__main__":
     test_build_iqm_estimator_model()
     test_progress_fallback()
     test_task_counts_and_failed_row()
+    test_qce_resp_ansatz_labels()
     test_cli_argument_parsing()
     from tempfile import TemporaryDirectory
 
