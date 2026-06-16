@@ -874,6 +874,631 @@ def compute_kl_for_fidelities(
     return kl, mids, p_emp, p_haar
 
 
+def sample_haar_fidelities(n_samples: int, dim: int, rng: np.random.Generator) -> np.ndarray:
+    """Draw fidelities F = |<psi|phi>|^2 from the Haar-random pair distribution."""
+    return 1.0 - rng.random(int(n_samples)) ** (1.0 / (dim - 1))
+
+
+def aggregate_kl_from_sample_rows(
+    sample_rows: list[dict[str, object]],
+    *,
+    n_qubits: int,
+    n_bins: int,
+    eps: float,
+) -> dict[str, object]:
+    """Aggregate per-pair tomography rows into KL summary statistics."""
+    dim = 2**n_qubits
+    f_phys = np.array([float(row["fidelity_physical"]) for row in sample_rows], dtype=np.float64)
+    f_lin = np.array([float(row["fidelity_linear"]) for row in sample_rows], dtype=np.float64)
+    kl_phys, _, _, _ = compute_kl_for_fidelities(f_phys, dim, n_bins, eps)
+    kl_lin, _, _, _ = compute_kl_for_fidelities(f_lin, dim, n_bins, eps)
+    return {
+        "n_qubits": n_qubits,
+        "n_samples": len(sample_rows),
+        "kl_physical": float(kl_phys),
+        "kl_linear": float(kl_lin),
+        "f_physical_mean": float(np.mean(f_phys)),
+        "f_physical_std": float(np.std(f_phys)),
+        "f_linear_mean": float(np.mean(f_lin)),
+        "f_linear_std": float(np.std(f_lin)),
+    }
+
+
+def bootstrap_kl_std(
+    fidelities: np.ndarray,
+    *,
+    dim: int,
+    n_bins: int,
+    eps: float,
+    n_bootstrap: int = 400,
+    seed: int = 0,
+) -> float:
+    """Bootstrap standard deviation of KL(P_emp || P_Haar) from fidelity samples."""
+    if len(fidelities) < 2:
+        return 0.0
+    rng = np.random.default_rng(seed)
+    n = len(fidelities)
+    kl_values = np.empty(int(n_bootstrap), dtype=np.float64)
+    for index in range(int(n_bootstrap)):
+        draw = fidelities[rng.integers(0, n, size=n)]
+        kl, _, _, _ = compute_kl_for_fidelities(draw, dim, n_bins, eps)
+        kl_values[index] = kl
+    return float(np.std(kl_values, ddof=1))
+
+
+def kl_confidence_half_width(std: float, n_bootstrap: int, z_value: float = 1.96) -> float:
+    if n_bootstrap <= 0:
+        raise ValueError("n_bootstrap must be positive")
+    return float(z_value * max(float(std), 0.0))
+
+
+def required_kl_samples(std: float, target_half_width: float, z_value: float = 1.96) -> int:
+    if target_half_width <= 0:
+        raise ValueError("target_half_width must be positive")
+    std = max(float(std), 0.0)
+    if std == 0.0:
+        return 1
+    return int(math.ceil(((z_value * std) / target_half_width) ** 2))
+
+
+def kl_job_key(ansatz: str, depth: int) -> tuple[str, int]:
+    return str(ansatz), int(depth)
+
+
+def completed_kl_jobs(summary_path: Path) -> set[tuple[str, int]]:
+    frame = read_csv_or_empty(summary_path)
+    if frame.empty:
+        return set()
+    return {
+        kl_job_key(str(row.ansatz), int(row.depth))
+        for row in frame.itertuples(index=False)
+    }
+
+
+def kl_summary_row(
+    *,
+    ansatz: str,
+    depth: int,
+    shots: int,
+    seed: int,
+    n_bins: int,
+    eps: float,
+    result: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "ansatz": ansatz,
+        "depth": depth,
+        "n_qubits": result["n_qubits"],
+        "n_samples": result["n_samples"],
+        "shots": shots,
+        "seed": seed,
+        "n_bins": n_bins,
+        "eps": eps,
+        "kl_physical": result["kl_physical"],
+        "kl_linear": result["kl_linear"],
+        "f_physical_mean": result["f_physical_mean"],
+        "f_physical_std": result["f_physical_std"],
+        "f_linear_mean": result["f_linear_mean"],
+        "f_linear_std": result["f_linear_std"],
+    }
+
+
+def fidelity_row_to_csv(
+    ansatz: str,
+    depth: int,
+    row: dict[str, object],
+) -> dict[str, object]:
+    return {"ansatz": ansatz, "depth": depth, **row}
+
+
+def read_kl_summary(
+    run_dir: Path,
+    *,
+    stage: str | None = None,
+    iteration: int | None = None,
+):
+    frame = read_csv_or_empty(Path(run_dir) / "iqm_kl_results.csv")
+    if frame.empty:
+        return frame
+    frame = frame.copy()
+    frame["run_dir"] = str(Path(run_dir))
+    frame["run_id"] = Path(run_dir).name
+    if stage is not None:
+        frame["stage"] = stage
+    if iteration is not None:
+        frame["iteration"] = int(iteration)
+    return frame
+
+
+def read_kl_fidelities(run_dir: Path):
+    return read_csv_or_empty(Path(run_dir) / "iqm_kl_fidelities.csv")
+
+
+def run_iqm_kl_sweep(
+    backend,
+    *,
+    ansatz_fns: dict[str, Callable[[int, int], QuantumCircuit]],
+    ansatz_names: list[str],
+    depths: list[int],
+    n_qubits: int,
+    n_samples: int,
+    seed: int,
+    shots: int,
+    n_bins: int,
+    eps: float,
+    optimization_level: int,
+    seed_transpiler: int | None,
+    max_circuits_per_job: int,
+    output_dir: Path,
+    resume: bool = True,
+    verbose: bool = False,
+    progress_callback: Callable[[str, int, int], None] | None = None,
+    manifest_extra: dict[str, object] | None = None,
+) -> Path:
+    """Run KL expressibility hardware sweep with resumable CSV artifacts."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = output_dir / "iqm_kl_results.csv"
+    fidelities_path = output_dir / "iqm_kl_fidelities.csv"
+    manifest_path = output_dir / "run_manifest.json"
+
+    completed = completed_kl_jobs(summary_path) if resume else set()
+    jobs = [(ansatz_name, depth) for depth in depths for ansatz_name in ansatz_names]
+    total_jobs = len(jobs)
+    done_jobs = sum(1 for job in jobs if job in completed)
+
+    for ansatz_name, depth in jobs:
+        if (ansatz_name, depth) in completed:
+            continue
+
+        if verbose:
+            print(f"Running {ansatz_name} depth={depth}", flush=True)
+
+        depth_seed = seed + 100 * depth + (1 if ansatz_name == "ansatz_simulator" else 0)
+        sample_rows = sample_hardware_fidelities(
+            backend,
+            ansatz_fns[ansatz_name],
+            n_qubits=n_qubits,
+            depth=depth,
+            n_samples=n_samples,
+            seed=depth_seed,
+            shots=shots,
+            optimization_level=optimization_level,
+            seed_transpiler=seed_transpiler,
+            max_circuits_per_job=max_circuits_per_job,
+            ansatz_label=ansatz_name,
+        )
+        result = aggregate_kl_from_sample_rows(
+            sample_rows,
+            n_qubits=n_qubits,
+            n_bins=n_bins,
+            eps=eps,
+        )
+        append_csv_row(
+            summary_path,
+            kl_summary_row(
+                ansatz=ansatz_name,
+                depth=depth,
+                shots=shots,
+                seed=depth_seed,
+                n_bins=n_bins,
+                eps=eps,
+                result=result,
+            ),
+        )
+        for row in sample_rows:
+            append_csv_row(
+                fidelities_path,
+                fidelity_row_to_csv(ansatz_name, depth, row),
+            )
+
+        done_jobs += 1
+        report_progress(progress_callback, "kl_jobs", done_jobs, total_jobs)
+
+    manifest = {
+        "source_script": "scripts/run_iqm_kl_expressibility.py",
+        "method": "hardware_hardware_overlap_tomography",
+        "fidelity_definition": "Tr(rho_a @ rho_b) from full 3^n Pauli tomography",
+        "kl_direction": "P_hardware || P_Haar",
+        "n_qubits": n_qubits,
+        "depths": list(depths),
+        "ansatzes": list(ansatz_names),
+        "n_samples": n_samples,
+        "shots": shots,
+        "n_bins": n_bins,
+        "eps": eps,
+        "seed": seed,
+        "optimization_level": optimization_level,
+        "max_circuits_per_job": max_circuits_per_job,
+        "circuits_per_fidelity_sample": circuits_per_fidelity_sample(n_qubits),
+        "total_tomography_circuits": total_expressibility_circuits(
+            len(ansatz_names),
+            len(depths),
+            n_samples,
+            n_qubits,
+        ),
+        "outputs": ["iqm_kl_results.csv", "iqm_kl_fidelities.csv"],
+    }
+    if manifest_extra:
+        manifest.update(manifest_extra)
+    write_mw_manifest(manifest_path, backend=backend, manifest=manifest)
+    return output_dir
+
+
+def compute_kl_shot_stability(summary_df) -> tuple[object, object]:
+    """Compare consecutive shot budgets for each ansatz/depth/sample setting."""
+    if summary_df.empty or "shots" not in summary_df.columns:
+        return summary_df.iloc[0:0].copy(), summary_df.iloc[0:0].copy()
+
+    rows = []
+    group_cols = ["ansatz", "depth", "n_samples"]
+    for keys, group in summary_df.groupby(group_cols, dropna=False):
+        ansatz, depth, n_samples = keys
+        ordered_shots = sorted(int(value) for value in group["shots"].dropna().unique())
+        for previous_shot, current_shot in zip(ordered_shots[:-1], ordered_shots[1:]):
+            prev = group[group["shots"] == previous_shot]
+            curr = group[group["shots"] == current_shot]
+            if prev.empty or curr.empty:
+                continue
+            prev_row = prev.iloc[0]
+            curr_row = curr.iloc[0]
+            rows.append(
+                {
+                    "ansatz": ansatz,
+                    "depth": int(depth),
+                    "n_samples": int(n_samples),
+                    "previous_shot": previous_shot,
+                    "current_shot": current_shot,
+                    "kl_physical_previous": float(prev_row["kl_physical"]),
+                    "kl_physical_current": float(curr_row["kl_physical"]),
+                    "abs_change_kl_physical": abs(
+                        float(curr_row["kl_physical"]) - float(prev_row["kl_physical"])
+                    ),
+                }
+            )
+
+    import pandas as pd
+
+    detailed = pd.DataFrame(rows)
+    if detailed.empty:
+        return detailed, pd.DataFrame()
+
+    aggregate_rows = []
+    for keys, group in detailed.groupby(["previous_shot", "current_shot"], dropna=False):
+        previous_shot, current_shot = keys
+        aggregate_rows.append(
+            {
+                "previous_shot": int(previous_shot),
+                "current_shot": int(current_shot),
+                "mean_abs_change_kl_physical": float(group["abs_change_kl_physical"].mean()),
+                "max_abs_change_kl_physical": float(group["abs_change_kl_physical"].max()),
+            }
+        )
+    return detailed, pd.DataFrame(aggregate_rows)
+
+
+def choose_kl_shots(summary_df, *, tolerance: float) -> int:
+    if tolerance <= 0:
+        raise ValueError("tolerance must be positive")
+    if summary_df.empty:
+        raise ValueError("KL pilot summary is empty; cannot choose shots")
+    _, aggregate = compute_kl_shot_stability(summary_df)
+    if aggregate.empty:
+        return int(max(summary_df["shots"]))
+    for row in aggregate.sort_values("current_shot").itertuples(index=False):
+        if float(row.max_abs_change_kl_physical) <= tolerance:
+            return int(row.current_shot)
+    return int(max(summary_df["shots"]))
+
+
+def compute_kl_prefix_precision(
+    fidelities_df,
+    *,
+    sample_grid: list[int],
+    dim: int,
+    n_bins: int,
+    eps: float,
+    target_half_width: float,
+    n_bootstrap: int = 400,
+    seed: int = 0,
+    fidelity_column: str = "fidelity_physical",
+    z_value: float = 1.96,
+):
+    """Bootstrap KL uncertainty from fidelity-prefix subsamples."""
+    if fidelities_df.empty:
+        return fidelities_df.iloc[0:0].copy(), fidelities_df.iloc[0:0].copy()
+
+    rows = []
+    group_cols = ["ansatz", "depth"]
+    for keys, group in fidelities_df.groupby(group_cols, dropna=False):
+        ansatz, depth = keys
+        ordered = group.sort_values("sample_index")
+        fidelities = ordered[fidelity_column].to_numpy(dtype=np.float64)
+        available = len(fidelities)
+        for n_samples in sample_grid:
+            if n_samples > available:
+                continue
+            prefix = fidelities[: int(n_samples)]
+            kl, _, _, _ = compute_kl_for_fidelities(prefix, dim, n_bins, eps)
+            boot_std = bootstrap_kl_std(
+                prefix,
+                dim=dim,
+                n_bins=n_bins,
+                eps=eps,
+                n_bootstrap=n_bootstrap,
+                seed=seed + int(depth) * 1000 + (1 if ansatz == "ansatz_simulator" else 0),
+            )
+            half_width = kl_confidence_half_width(boot_std, n_bootstrap, z_value)
+            rows.append(
+                {
+                    "ansatz": ansatz,
+                    "depth": int(depth),
+                    "n_samples": int(n_samples),
+                    "available_samples": available,
+                    "kl_physical": float(kl),
+                    "bootstrap_std": boot_std,
+                    "confidence_half_width": half_width,
+                    "target_half_width": float(target_half_width),
+                    "meets_target": bool(half_width <= target_half_width),
+                    "required_n_samples": required_kl_samples(
+                        boot_std,
+                        target_half_width,
+                        z_value,
+                    ),
+                }
+            )
+
+    import pandas as pd
+
+    detailed = pd.DataFrame(rows)
+    if detailed.empty:
+        return detailed, pd.DataFrame()
+
+    aggregate_rows = []
+    for n_samples, group in detailed.groupby("n_samples", dropna=False):
+        aggregate_rows.append(
+            {
+                "n_samples": int(n_samples),
+                "max_confidence_half_width": float(group["confidence_half_width"].max()),
+                "max_required_n_samples": int(group["required_n_samples"].max()),
+                "all_meet_target": bool(group["meets_target"].all()),
+            }
+        )
+    return detailed, pd.DataFrame(aggregate_rows).sort_values("n_samples")
+
+
+def choose_kl_samples(
+    fidelities_df,
+    *,
+    sample_grid: list[int],
+    dim: int,
+    n_bins: int,
+    eps: float,
+    target_half_width: float,
+    n_bootstrap: int = 400,
+    seed: int = 0,
+    z_value: float = 1.96,
+) -> int:
+    _, aggregate = compute_kl_prefix_precision(
+        fidelities_df,
+        sample_grid=sample_grid,
+        dim=dim,
+        n_bins=n_bins,
+        eps=eps,
+        target_half_width=target_half_width,
+        n_bootstrap=n_bootstrap,
+        seed=seed,
+        z_value=z_value,
+    )
+    if aggregate.empty:
+        raise ValueError("KL prefix precision table is empty; cannot choose n_samples")
+    for row in aggregate.sort_values("n_samples").itertuples(index=False):
+        if bool(row.all_meet_target):
+            return int(row.n_samples)
+    return int(aggregate["max_required_n_samples"].max())
+
+
+def compute_kl_bin_sensitivity(
+    *,
+    num_qubits: int,
+    n_samples: int,
+    bin_grid: list[int],
+    n_reference_bins: int = 400,
+    eps: float = 1e-12,
+    seed: int = 0,
+    n_trials: int = 100,
+):
+    """Estimate histogram discretization bias for KL via Haar-random fidelity draws."""
+    dim = 2**num_qubits
+    rng = np.random.default_rng(seed)
+    rows = []
+    for trial in range(int(n_trials)):
+        fidelities = sample_haar_fidelities(n_samples, dim, rng)
+        kl_ref, _, _, _ = compute_kl_for_fidelities(
+            fidelities,
+            dim,
+            n_reference_bins,
+            eps,
+        )
+        for n_bins in bin_grid:
+            kl_bins, _, _, _ = compute_kl_for_fidelities(fidelities, dim, int(n_bins), eps)
+            rows.append(
+                {
+                    "trial": trial,
+                    "n_samples": int(n_samples),
+                    "n_bins": int(n_bins),
+                    "kl_reference": float(kl_ref),
+                    "kl_physical": float(kl_bins),
+                    "abs_bias": abs(float(kl_bins) - float(kl_ref)),
+                }
+            )
+
+    import pandas as pd
+
+    detailed = pd.DataFrame(rows)
+    if detailed.empty:
+        return detailed, pd.DataFrame()
+
+    aggregate_rows = []
+    for n_bins, group in detailed.groupby("n_bins", dropna=False):
+        aggregate_rows.append(
+            {
+                "n_bins": int(n_bins),
+                "mean_abs_bias": float(group["abs_bias"].mean()),
+                "max_abs_bias": float(group["abs_bias"].max()),
+                "p95_abs_bias": float(group["abs_bias"].quantile(0.95)),
+            }
+        )
+    return detailed, pd.DataFrame(aggregate_rows).sort_values("n_bins")
+
+
+def choose_kl_bins(
+    bin_aggregate,
+    *,
+    tolerance: float,
+    fallback: int | None = None,
+) -> int:
+    if bin_aggregate.empty:
+        if fallback is None:
+            raise ValueError("KL bin sensitivity table is empty; cannot choose n_bins")
+        return int(fallback)
+    for row in bin_aggregate.sort_values("n_bins").itertuples(index=False):
+        if float(row.max_abs_bias) <= tolerance:
+            return int(row.n_bins)
+    return int(bin_aggregate["n_bins"].max())
+
+
+def compute_kl_iteration_stability(summary_df):
+    if summary_df.empty or "iteration" not in summary_df.columns:
+        return summary_df.iloc[0:0].copy()
+
+    import pandas as pd
+
+    rows = []
+    for keys, group in summary_df.groupby(
+        ["ansatz", "depth", "shots", "n_samples", "n_bins"], dropna=False
+    ):
+        ansatz, depth, shots, n_samples, n_bins = keys
+        n_iter = int(group["iteration"].nunique())
+        iter_std = float(group["kl_physical"].std(ddof=1)) if n_iter > 1 else 0.0
+        iter_sem = iter_std / math.sqrt(n_iter) if n_iter > 0 else 0.0
+        half_width = (
+            mw_iteration_half_width(iter_std, n_iter) if n_iter >= 2 else float("nan")
+        )
+        rows.append(
+            {
+                "ansatz": ansatz,
+                "depth": int(depth),
+                "shots": int(shots),
+                "n_samples": int(n_samples),
+                "n_bins": int(n_bins),
+                "iterations": n_iter,
+                "iteration_mean_kl_physical": float(group["kl_physical"].mean()),
+                "iteration_std_kl_physical": iter_std,
+                "iteration_sem_kl_physical": iter_sem,
+                "iteration_half_width_95": half_width,
+                "iteration_min_kl_physical": float(group["kl_physical"].min()),
+                "iteration_max_kl_physical": float(group["kl_physical"].max()),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def compute_kl_iteration_precision(
+    summary_df,
+    *,
+    target_half_width: float,
+) -> tuple[object, object]:
+    import pandas as pd
+
+    stability = compute_kl_iteration_stability(summary_df)
+    if stability.empty:
+        return stability, pd.DataFrame()
+
+    detailed = stability.copy()
+    detailed["target_half_width"] = float(target_half_width)
+    detailed["meets_target"] = detailed["iteration_half_width_95"] <= float(target_half_width)
+
+    aggregate_rows = []
+    if not detailed["iteration_half_width_95"].isna().all():
+        aggregate_rows.append(
+            {
+                "iterations": int(detailed["iterations"].max()),
+                "max_iteration_half_width_95": float(detailed["iteration_half_width_95"].max()),
+                "mean_iteration_half_width_95": float(detailed["iteration_half_width_95"].mean()),
+                "target_half_width": float(target_half_width),
+                "all_meet_target": bool(detailed["meets_target"].all()),
+            }
+        )
+    return detailed, pd.DataFrame(aggregate_rows)
+
+
+def choose_kl_iterations(
+    summary_df,
+    *,
+    target_half_width: float,
+    min_iterations: int = 2,
+    max_iterations: int = 4,
+) -> int:
+    if min_iterations < 2:
+        raise ValueError("min_iterations must be at least 2")
+    if max_iterations < min_iterations:
+        raise ValueError("max_iterations must be >= min_iterations")
+    if summary_df.empty:
+        raise ValueError("KL iteration pilot summary is empty; cannot choose iterations")
+
+    for iterations in range(min_iterations, max_iterations + 1):
+        subset = summary_df[summary_df["iteration"] <= iterations]
+        present = sorted(int(value) for value in subset["iteration"].dropna().unique())
+        if present != list(range(1, iterations + 1)):
+            continue
+        _, aggregate = compute_kl_iteration_precision(
+            subset,
+            target_half_width=target_half_width,
+        )
+        if aggregate.empty:
+            continue
+        if bool(aggregate.iloc[0]["all_meet_target"]):
+            return int(iterations)
+    return int(max_iterations)
+
+
+def kl_iteration_target_met(
+    summary_df,
+    *,
+    target_half_width: float,
+    iterations: int,
+) -> bool:
+    subset = summary_df[summary_df["iteration"] <= iterations]
+    present = sorted(int(value) for value in subset["iteration"].dropna().unique())
+    if present != list(range(1, iterations + 1)):
+        return False
+    _, aggregate = compute_kl_iteration_precision(
+        subset,
+        target_half_width=target_half_width,
+    )
+    if aggregate.empty:
+        return False
+    return bool(aggregate.iloc[0]["all_meet_target"])
+
+
+def write_kl_protocol_artifacts(
+    run_dir: Path,
+    *,
+    recommendation: dict[str, object],
+    frames: dict[str, object],
+) -> Path:
+    import pandas as pd
+
+    run_dir = Path(run_dir)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    for name, frame in frames.items():
+        if isinstance(frame, pd.DataFrame) and not frame.empty:
+            frame.to_csv(run_dir / f"{name}.csv", index=False)
+    path = run_dir / "kl_protocol_recommendation.json"
+    path.write_text(json.dumps(recommendation, indent=2, sort_keys=True) + "\n")
+    return path
+
+
 def circuits_per_fidelity_sample(n_qubits: int) -> int:
     return 2 * (3**n_qubits)
 

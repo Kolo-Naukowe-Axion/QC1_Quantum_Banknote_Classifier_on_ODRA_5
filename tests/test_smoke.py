@@ -26,14 +26,24 @@ from qbanknote.ansatzes import (  # noqa: E402
 from qbanknote.data import load_fold_arrays, set_random_seed  # noqa: E402
 from qbanknote.metrics import (  # noqa: E402
     bloch_row_to_score_row,
+    choose_kl_bins,
+    choose_kl_iterations,
+    choose_kl_samples,
+    choose_kl_shots,
     choose_mw_iterations,
     choose_mw_samples,
     choose_mw_shots,
+    completed_kl_jobs,
     completed_mw_jobs,
+    compute_kl_bin_sensitivity,
+    compute_kl_iteration_precision,
+    compute_kl_prefix_precision,
+    compute_kl_shot_stability,
     compute_mw_iteration_precision,
     compute_mw_iteration_stability,
     compute_mw_sample_precision,
     compute_mw_shot_stability,
+    kl_summary_row,
     mw_iteration_half_width,
     mw_mean_shot_noise_bound,
     mw_shot_noise_sd_bound,
@@ -41,6 +51,7 @@ from qbanknote.metrics import (  # noqa: E402
     run_kl_self_check,
     run_mw_self_check,
     summary_row_from_result,
+    write_kl_protocol_artifacts,
     write_mw_protocol_artifacts,
 )
 from qbanknote.model import HybridModel  # noqa: E402
@@ -471,6 +482,187 @@ def test_mw_protocol_precision_helpers(tmp_path: Path) -> None:
     assert (tmp_path / "shot_stability.csv").exists()
 
 
+def test_kl_protocol_precision_helpers(tmp_path: Path) -> None:
+    dim = 32
+    rng = np.random.default_rng(0)
+    fidelities = 1.0 - rng.random(20) ** (1.0 / (dim - 1))
+
+    _, bin_aggregate = compute_kl_bin_sensitivity(
+        num_qubits=5,
+        n_samples=15,
+        bin_grid=[50, 100, 150],
+        n_reference_bins=400,
+        seed=0,
+        n_trials=20,
+    )
+    assert not bin_aggregate.empty
+    chosen_bins = choose_kl_bins(bin_aggregate, tolerance=0.05, fallback=150)
+    assert chosen_bins in {50, 100, 150}
+
+    shot_summary = pd.DataFrame(
+        [
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "n_samples": 3,
+                "shots": 512,
+                "kl_physical": 0.50,
+            },
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "n_samples": 3,
+                "shots": 1024,
+                "kl_physical": 0.515,
+            },
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "n_samples": 3,
+                "shots": 2048,
+                "kl_physical": 0.517,
+            },
+            {
+                "ansatz": "ansatz_simulator",
+                "depth": 2,
+                "n_samples": 3,
+                "shots": 512,
+                "kl_physical": 0.40,
+            },
+            {
+                "ansatz": "ansatz_simulator",
+                "depth": 2,
+                "n_samples": 3,
+                "shots": 1024,
+                "kl_physical": 0.411,
+            },
+            {
+                "ansatz": "ansatz_simulator",
+                "depth": 2,
+                "n_samples": 3,
+                "shots": 2048,
+                "kl_physical": 0.412,
+            },
+        ]
+    )
+    detailed, aggregate = compute_kl_shot_stability(shot_summary)
+    assert not detailed.empty
+    assert not aggregate.empty
+    assert choose_kl_shots(shot_summary, tolerance=0.02) == 1024
+
+    fidelities_df = pd.DataFrame(
+        {
+            "ansatz": ["ansatz_odra"] * len(fidelities),
+            "depth": [2] * len(fidelities),
+            "sample_index": list(range(len(fidelities))),
+            "fidelity_physical": fidelities,
+        }
+    )
+    precision, precision_aggregate = compute_kl_prefix_precision(
+        fidelities_df,
+        sample_grid=[5, 10, 15],
+        dim=dim,
+        n_bins=chosen_bins,
+        eps=1e-12,
+        target_half_width=0.10,
+        n_bootstrap=50,
+        seed=0,
+    )
+    assert not precision.empty
+    assert not precision_aggregate.empty
+    chosen_samples = choose_kl_samples(
+        fidelities_df,
+        sample_grid=[5, 10, 15],
+        dim=dim,
+        n_bins=chosen_bins,
+        eps=1e-12,
+        target_half_width=0.10,
+        n_bootstrap=50,
+        seed=0,
+    )
+    assert chosen_samples in {5, 10, 15}
+
+    summary_path = tmp_path / "iqm_kl_results.csv"
+    append_csv_row(
+        summary_path,
+        kl_summary_row(
+            ansatz="ansatz_odra",
+            depth=2,
+            shots=1024,
+            seed=42,
+            n_bins=chosen_bins,
+            eps=1e-12,
+            result={
+                "n_qubits": 5,
+                "n_samples": chosen_samples,
+                "kl_physical": 0.5,
+                "kl_linear": 0.55,
+                "f_physical_mean": 0.1,
+                "f_physical_std": 0.05,
+                "f_linear_mean": 0.1,
+                "f_linear_std": 0.05,
+            },
+        ),
+    )
+    assert completed_kl_jobs(summary_path) == {("ansatz_odra", 2)}
+
+    iteration_summary = pd.DataFrame(
+        [
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "shots": 1024,
+                "n_samples": 10,
+                "n_bins": chosen_bins,
+                "iteration": iteration,
+                "kl_physical": 0.50 + 0.001 * iteration,
+            }
+            for iteration in range(1, 3)
+        ]
+        + [
+            {
+                "ansatz": "ansatz_simulator",
+                "depth": 2,
+                "shots": 1024,
+                "n_samples": 10,
+                "n_bins": chosen_bins,
+                "iteration": iteration,
+                "kl_physical": 0.40 + 0.001 * iteration,
+            }
+            for iteration in range(1, 3)
+        ]
+    )
+    iteration_precision, iteration_precision_aggregate = compute_kl_iteration_precision(
+        iteration_summary,
+        target_half_width=0.02,
+    )
+    assert not iteration_precision.empty
+    assert bool(iteration_precision_aggregate.iloc[0]["all_meet_target"])
+    assert choose_kl_iterations(
+        iteration_summary,
+        target_half_width=0.02,
+        min_iterations=2,
+        max_iterations=4,
+    ) == 2
+
+    report_path = write_kl_protocol_artifacts(
+        tmp_path,
+        recommendation={
+            "chosen_shots": 1024,
+            "chosen_n_samples": chosen_samples,
+            "chosen_n_bins": chosen_bins,
+            "chosen_iterations": 2,
+        },
+        frames={
+            "shot_stability": detailed,
+            "sample_precision": precision,
+            "iteration_precision": iteration_precision,
+        },
+    )
+    assert report_path.exists()
+    assert (tmp_path / "shot_stability.csv").exists()
+
+
 def _synthetic_summary_df() -> pd.DataFrame:
     rows = []
     for fold in (1, 2, 3):
@@ -617,6 +809,8 @@ def test_cli_argument_parsing() -> None:
     scripts = [
         "run_iqm_meyer_wallach.py",
         "run_iqm_mw_pilot.py",
+        "run_iqm_kl_pilot.py",
+        "run_iqm_kl_expressibility.py",
         "run_iqm_metric_test.py",
         "select_iqm_metric_protocol.py",
         "analyze_iqm_metric_test.py",
@@ -657,6 +851,32 @@ def test_cli_argument_parsing() -> None:
     assert pilot_args.shots == 1024
     assert pilot_args.samples == 60
     assert pilot_args.target_iteration_half_width == 0.01
+
+    kl_pilot_path = ROOT / "scripts" / "run_iqm_kl_pilot.py"
+    kl_pilot_spec = importlib.util.spec_from_file_location("run_iqm_kl_pilot", kl_pilot_path)
+    kl_pilot_module = importlib.util.module_from_spec(kl_pilot_spec)
+    assert kl_pilot_spec.loader is not None
+    kl_pilot_spec.loader.exec_module(kl_pilot_module)
+    try:
+        sys.argv = ["run_iqm_kl_pilot.py"]
+        kl_pilot_args = kl_pilot_module.parse_args()
+    finally:
+        sys.argv = original_argv
+    assert kl_pilot_args.shot_grid == [512, 1024, 2048, 4096]
+    assert kl_pilot_args.shot_pilot_depth == [2, 4, 6]
+    assert kl_pilot_args.pilot_samples == 3
+    budget = kl_pilot_module.estimate_kl_pilot_budget(
+        n_ansatzes=2,
+        shot_grid=kl_pilot_args.shot_grid,
+        shot_pilot_depths=kl_pilot_args.shot_pilot_depth,
+        pilot_samples=kl_pilot_args.pilot_samples,
+        depths=kl_pilot_args.depth,
+        max_samples=kl_pilot_args.max_samples,
+        max_iterations=kl_pilot_args.max_iterations,
+        drift_only=False,
+    )
+    assert budget["shot_pairs"] == 72
+    assert budget["total_pairs"] == 342
 
     mw_path = ROOT / "scripts" / "run_iqm_meyer_wallach.py"
     mw_spec = importlib.util.spec_from_file_location("run_iqm_meyer_wallach", mw_path)
@@ -702,5 +922,6 @@ if __name__ == "__main__":
         tmp_path = Path(tmp)
         test_mw_csv_artifact_helpers(tmp_path)
         test_mw_protocol_precision_helpers(tmp_path)
+        test_kl_protocol_precision_helpers(tmp_path)
         test_write_protocol_and_analysis_artifacts(tmp_path)
     print("All smoke tests passed.")
