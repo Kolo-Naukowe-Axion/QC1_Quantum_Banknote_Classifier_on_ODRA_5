@@ -556,6 +556,40 @@ def choose_mw_samples(summary_df, *, target_half_width: float, z_value: float = 
     return int(aggregate["max_required_n_samples"].max())
 
 
+# Two-sided 95% Student-t critical values for df = K-1, K = 2..10
+_STUDENT_T_975: dict[int, float] = {
+    1: 12.706,
+    2: 4.303,
+    3: 3.182,
+    4: 2.776,
+    5: 2.571,
+    6: 2.447,
+    7: 2.365,
+    8: 2.306,
+    9: 2.262,
+    10: 2.228,
+}
+
+
+def mw_student_t_975(iterations: int) -> float:
+    """Return t_{0.975, K-1} for K repeated hardware iterations."""
+    if iterations < 2:
+        raise ValueError("iterations must be at least 2 for a drift variance estimate")
+    df = int(iterations) - 1
+    if df in _STUDENT_T_975:
+        return float(_STUDENT_T_975[df])
+    return 1.96
+
+
+def mw_iteration_half_width(std: float, iterations: int) -> float:
+    """95% half-width for the mean MW across repeated hardware iterations."""
+    if iterations < 2:
+        raise ValueError("iterations must be at least 2 for iteration half-width")
+    std = max(float(std), 0.0)
+    t_value = mw_student_t_975(iterations)
+    return float(t_value * std / math.sqrt(iterations))
+
+
 def compute_mw_iteration_stability(summary_df):
     if summary_df.empty or "iteration" not in summary_df.columns:
         return summary_df.iloc[0:0].copy()
@@ -565,20 +599,112 @@ def compute_mw_iteration_stability(summary_df):
     rows = []
     for keys, group in summary_df.groupby(["ansatz", "depth", "shots", "n_samples"], dropna=False):
         ansatz, depth, shots, n_samples = keys
+        n_iter = int(group["iteration"].nunique())
+        iter_std = float(group["mw_avg"].std(ddof=1)) if n_iter > 1 else 0.0
+        iter_sem = iter_std / math.sqrt(n_iter) if n_iter > 0 else 0.0
+        half_width = (
+            mw_iteration_half_width(iter_std, n_iter) if n_iter >= 2 else float("nan")
+        )
         rows.append(
             {
                 "ansatz": ansatz,
                 "depth": int(depth),
                 "shots": int(shots),
                 "n_samples": int(n_samples),
-                "iterations": int(group["iteration"].nunique()),
+                "iterations": n_iter,
                 "iteration_mean_mw_avg": float(group["mw_avg"].mean()),
-                "iteration_std_mw_avg": float(group["mw_avg"].std(ddof=1)) if len(group) > 1 else 0.0,
+                "iteration_std_mw_avg": iter_std,
+                "iteration_sem_mw_avg": iter_sem,
+                "iteration_half_width_95": half_width,
                 "iteration_min_mw_avg": float(group["mw_avg"].min()),
                 "iteration_max_mw_avg": float(group["mw_avg"].max()),
             }
         )
     return pd.DataFrame(rows)
+
+
+def compute_mw_iteration_precision(
+    summary_df,
+    *,
+    target_half_width: float,
+) -> tuple[object, object]:
+    """Compute per-configuration iteration drift precision from repeated sweeps."""
+    import pandas as pd
+
+    stability = compute_mw_iteration_stability(summary_df)
+    if stability.empty:
+        return stability, pd.DataFrame()
+
+    detailed = stability.copy()
+    detailed["target_half_width"] = float(target_half_width)
+    detailed["meets_target"] = detailed["iteration_half_width_95"] <= float(target_half_width)
+
+    aggregate_rows = []
+    if not detailed["iteration_half_width_95"].isna().all():
+        aggregate_rows.append(
+            {
+                "iterations": int(detailed["iterations"].max()),
+                "max_iteration_half_width_95": float(detailed["iteration_half_width_95"].max()),
+                "mean_iteration_half_width_95": float(detailed["iteration_half_width_95"].mean()),
+                "target_half_width": float(target_half_width),
+                "all_meet_target": bool(detailed["meets_target"].all()),
+            }
+        )
+    return detailed, pd.DataFrame(aggregate_rows)
+
+
+def choose_mw_iterations(
+    summary_df,
+    *,
+    target_half_width: float,
+    min_iterations: int = 3,
+    max_iterations: int = 5,
+) -> int:
+    """Choose smallest K with worst-case iteration half-width below target."""
+    if min_iterations < 2:
+        raise ValueError("min_iterations must be at least 2")
+    if max_iterations < min_iterations:
+        raise ValueError("max_iterations must be >= min_iterations")
+    if summary_df.empty:
+        raise ValueError("MW iteration pilot summary is empty; cannot choose iterations")
+
+    import pandas as pd
+
+    for iterations in range(min_iterations, max_iterations + 1):
+        subset = summary_df[summary_df["iteration"] <= iterations]
+        present = sorted(int(v) for v in subset["iteration"].dropna().unique())
+        if present != list(range(1, iterations + 1)):
+            continue
+        _, aggregate = compute_mw_iteration_precision(
+            subset,
+            target_half_width=target_half_width,
+        )
+        if aggregate.empty:
+            continue
+        row = aggregate.iloc[0]
+        if bool(row["all_meet_target"]):
+            return int(iterations)
+    return int(max_iterations)
+
+
+def iteration_target_met(
+    summary_df,
+    *,
+    target_half_width: float,
+    iterations: int,
+) -> bool:
+    """Return True if completed iterations satisfy the drift half-width target."""
+    subset = summary_df[summary_df["iteration"] <= iterations]
+    present = sorted(int(v) for v in subset["iteration"].dropna().unique())
+    if present != list(range(1, iterations + 1)):
+        return False
+    _, aggregate = compute_mw_iteration_precision(
+        subset,
+        target_half_width=target_half_width,
+    )
+    if aggregate.empty:
+        return False
+    return bool(aggregate.iloc[0]["all_meet_target"])
 
 
 def write_mw_protocol_artifacts(

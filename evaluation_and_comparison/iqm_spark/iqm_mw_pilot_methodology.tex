@@ -1,0 +1,387 @@
+\documentclass[11pt]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue,
+  urlcolor=blue
+}
+
+\title{Pilot Methodology for Meyer--Wallach Entanglement Evaluation on IQM Spark}
+\author{QC1 Quantum Banknote Classifier on ODRA 5}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{Purpose}
+
+This document specifies a pilot protocol for choosing the hardware budget in the
+Meyer--Wallach (MW) entanglement workflow. The protocol selects:
+\begin{itemize}
+  \item the number of shots per Pauli measurement basis,
+  \item the number of random ansatz parameter samples,
+  \item and the number of repeated fixed-seed hardware iterations used to
+  quantify run-to-run drift.
+\end{itemize}
+
+The corresponding runner is:
+\begin{verbatim}
+python scripts/run_iqm_mw_pilot.py --pilot-id mw_pilot_paper
+\end{verbatim}
+
+The output directory is:
+\begin{verbatim}
+evaluation_and_comparison/iqm_spark/iqm_mw_outputs/pilots/<pilot_id>/
+\end{verbatim}
+
+\section{Quantity Being Estimated}
+
+For an \(n\)-qubit pure state, the Meyer--Wallach score is
+\begin{equation}
+Q(|\psi\rangle)
+=
+\frac{2}{n}
+\sum_{i=1}^{n}
+\left(1-\operatorname{Tr}(\rho_i^2)\right),
+\label{eq:mw}
+\end{equation}
+where \(\rho_i\) is the one-qubit reduced density matrix of qubit \(i\).
+
+The hardware workflow does not reconstruct the full \(2^n \times 2^n\) density
+matrix. Instead, it estimates only the one-qubit marginals required by
+Eq.~\eqref{eq:mw}. Each reduced state is represented by its Bloch vector,
+\begin{equation}
+\rho_i
+=
+\frac{1}{2}
+\left(I+x_iX+y_iY+z_iZ\right),
+\label{eq:bloch}
+\end{equation}
+where
+\begin{equation}
+x_i=\langle X_i\rangle,\qquad
+y_i=\langle Y_i\rangle,\qquad
+z_i=\langle Z_i\rangle.
+\end{equation}
+
+The single-qubit purity is therefore
+\begin{equation}
+\operatorname{Tr}(\rho_i^2)
+=
+\frac{1}{2}
+\left(1+x_i^2+y_i^2+z_i^2\right).
+\label{eq:purity}
+\end{equation}
+Substituting Eq.~\eqref{eq:purity} into Eq.~\eqref{eq:mw} gives
+\begin{equation}
+Q
+=
+1-\frac{1}{n}
+\sum_{i=1}^{n}
+\left(x_i^2+y_i^2+z_i^2\right).
+\label{eq:mw_bloch}
+\end{equation}
+
+Thus, for each random ansatz parameter sample, the hardware run needs only
+three circuits: one measured in the \(Z\) basis, one in the \(X\) basis, and one
+in the \(Y\) basis.
+
+\section{Shot-Count Justification}
+
+For a fixed qubit \(i\) and Pauli basis \(P \in \{X,Y,Z\}\), each shot returns
+a binary outcome
+\begin{equation}
+Y_s \in \{-1,+1\}.
+\end{equation}
+The Pauli expectation estimator is the sample mean
+\begin{equation}
+\hat p_{iP}
+=
+\frac{1}{S}
+\sum_{s=1}^{S} Y_s,
+\end{equation}
+where \(S\) is the number of shots in that basis. If
+\(p_{iP}=\mathbb{E}[Y_s]\), then \(Y_s^2=1\), so
+\begin{equation}
+\operatorname{Var}(Y_s)
+=
+\mathbb{E}[Y_s^2]-\mathbb{E}[Y_s]^2
+=
+1-p_{iP}^2.
+\end{equation}
+For independent shots,
+\begin{equation}
+\operatorname{Var}(\hat p_{iP})
+=
+\frac{1-p_{iP}^2}{S}
+\leq
+\frac{1}{S}.
+\label{eq:pauli_var}
+\end{equation}
+
+Since
+\begin{equation}
+Q
+=
+1-\frac{1}{n}\sum_{i,P}p_{iP}^2,
+\end{equation}
+the delta method gives the approximate propagation of Pauli-estimation shot
+noise into one MW score:
+\begin{equation}
+\operatorname{Var}(\hat Q)
+\approx
+\sum_{i,P}
+\left(
+\frac{\partial Q}{\partial p_{iP}}
+\right)^2
+\operatorname{Var}(\hat p_{iP})
+=
+\sum_{i,P}
+\left(
+\frac{2p_{iP}}{n}
+\right)^2
+\frac{1-p_{iP}^2}{S}.
+\label{eq:delta}
+\end{equation}
+
+Using the Bloch-vector constraint
+\begin{equation}
+x_i^2+y_i^2+z_i^2 \leq 1,
+\end{equation}
+Eq.~\eqref{eq:delta} is conservatively bounded by
+\begin{equation}
+\operatorname{SD}_{\mathrm{shot}}(\hat Q)
+\lesssim
+\frac{2}{\sqrt{nS}}.
+\label{eq:shot_bound}
+\end{equation}
+
+For the five-qubit IQM Spark experiment, \(n=5\). With \(S=4096\) shots,
+\begin{equation}
+\frac{2}{\sqrt{5\cdot4096}}
+\approx
+0.014.
+\end{equation}
+If the final MW estimate averages over \(N=20\) independent random parameter
+samples, the shot-noise contribution to the mean is reduced by \(\sqrt{N}\):
+\begin{equation}
+\frac{0.014}{\sqrt{20}}
+\approx
+0.003.
+\end{equation}
+
+This justifies \(4096\) shots as a conservative upper-budget setting: finite
+shot noise becomes small compared with the Monte Carlo variation over random
+ansatz parameters and with possible hardware drift.
+
+\section{Pilot Rule for Choosing Shots}
+
+The pilot evaluates a grid of shot counts using the same ansatzes, depths,
+random seed, and pilot parameter samples:
+\begin{equation}
+S \in \{512,1024,2048,4096\}.
+\end{equation}
+For each ansatz \(a\), depth \(L\), and consecutive shot pair
+\((S_{k-1},S_k)\), compute
+\begin{equation}
+\Delta_S(a,L)
+=
+\left|
+\bar Q_{a,L,S_k}
+-
+\bar Q_{a,L,S_{k-1}}
+\right|.
+\end{equation}
+The selected shot count is the smallest \(S_k\) satisfying
+\begin{equation}
+\max_{a,L}\Delta_S(a,L)
+\leq
+\epsilon_S.
+\label{eq:shot_rule}
+\end{equation}
+The default tolerance is
+\begin{equation}
+\epsilon_S = 0.02
+\end{equation}
+MW units. If no tested shot count satisfies Eq.~\eqref{eq:shot_rule}, the
+protocol uses the largest tested shot budget.
+
+The runner writes:
+\begin{itemize}
+  \item \texttt{shot\_pilot\_summary.csv},
+  \item \texttt{shot\_stability.csv},
+  \item \texttt{shot\_stability\_aggregate.csv}.
+\end{itemize}
+
+\section{Sample-Count Justification}
+
+Once shots are fixed, the dominant statistical uncertainty is Monte Carlo
+variation over random ansatz parameter vectors. For each ansatz/depth
+configuration, let \(Q_1,\dots,Q_N\) be MW scores from \(N\) random parameter
+samples. The sample mean is
+\begin{equation}
+\bar Q
+=
+\frac{1}{N}
+\sum_{j=1}^{N}Q_j,
+\end{equation}
+with empirical standard deviation \(s_Q\). The estimated 95\% confidence
+half-width is
+\begin{equation}
+h_N
+=
+z_{0.975}
+\frac{s_Q}{\sqrt{N}},
+\label{eq:half_width}
+\end{equation}
+where the implementation uses \(z_{0.975}=1.96\) by default.
+
+The pilot chooses the smallest sample count \(N\) satisfying
+\begin{equation}
+\max_{a,L} h_N(a,L)
+\leq
+h_{\mathrm{target}},
+\label{eq:sample_rule}
+\end{equation}
+with default target
+\begin{equation}
+h_{\mathrm{target}}=0.03
+\end{equation}
+MW units.
+
+Equivalently, for a pilot-estimated standard deviation \(s_Q\), the required
+number of samples is
+\begin{equation}
+N_{\mathrm{req}}
+=
+\left\lceil
+\left(
+\frac{1.96\,s_Q}{h_{\mathrm{target}}}
+\right)^2
+\right\rceil.
+\label{eq:n_req}
+\end{equation}
+For example, if \(s_Q\leq0.06\) and \(h_{\mathrm{target}}=0.03\), then
+\begin{equation}
+1.96\frac{0.06}{\sqrt{20}}
+\approx
+0.026,
+\end{equation}
+so \(N=20\) meets the target half-width.
+
+The runner writes:
+\begin{itemize}
+  \item \texttt{sample\_pilot\_summary.csv},
+  \item \texttt{sample\_precision.csv},
+  \item \texttt{sample\_precision\_aggregate.csv}.
+\end{itemize}
+
+\section{Hardware Iterations and Drift}
+
+The shot and sample pilots quantify statistical precision, but not
+time-dependent hardware drift. To estimate drift, repeat the frozen protocol with
+the same random seed and choose the smallest iteration count \(K\) whose
+worst-case drift half-width meets a target.
+
+For repeated hardware sweeps \(\bar Q_1,\bar Q_2,\dots,\bar Q_K\) at fixed shots
+and \(N\), define the iteration standard deviation \(s_{\mathrm{iter}}\) and
+Student-\(t\) 95\% half-width
+\begin{equation}
+h_{\mathrm{iter}}
+=
+t_{0.975,K-1}\,
+\frac{s_{\mathrm{iter}}}{\sqrt{K}}.
+\end{equation}
+Choose the smallest \(K \ge K_{\min}\) such that
+\begin{equation}
+\max_{\text{ansatz, depth}} h_{\mathrm{iter}} \le h_{\mathrm{target}}.
+\end{equation}
+Defaults are \texttt{--min-iterations 3}, \texttt{--max-iterations 5}, and
+\texttt{--target-iteration-half-width 0.01}. Use \texttt{0.02} for qualitative
+depth trends.
+
+After shots and samples are already frozen, run only the drift pilot:
+\begin{verbatim}
+python scripts/run_iqm_mw_pilot.py \
+  --drift-only \
+  --shots 1024 \
+  --samples 60 \
+  --target-iteration-half-width 0.01 \
+  --min-iterations 3 \
+  --max-iterations 5 \
+  --pilot-id mw_drift_pilot_final
+\end{verbatim}
+
+Using the same seed fixes the random parameter vectors across iterations. Thus,
+iteration-to-iteration differences primarily reflect QPU drift, calibration
+changes, queue conditions, and residual shot noise rather than different random
+points in parameter space.
+
+The runner writes:
+\begin{itemize}
+  \item \texttt{iteration\_summary.csv},
+  \item \texttt{iteration\_stability.csv},
+  \item \texttt{iteration\_precision.csv},
+  \item \texttt{iteration\_precision\_aggregate.csv}.
+\end{itemize}
+
+\section{Recommended Paper-Quality Pilot}
+
+A practical paper-quality pilot is:
+\begin{verbatim}
+python scripts/run_iqm_mw_pilot.py \
+  --pilot-id mw_full_precision_pilot \
+  --shot-grid 512 1024 2048 4096 \
+  --sample-grid 10 20 40 60 \
+  --pilot-samples 10 \
+  --shot-tolerance 0.02 \
+  --target-half-width 0.03 \
+  --target-iteration-half-width 0.01 \
+  --min-iterations 3 \
+  --max-iterations 5
+\end{verbatim}
+
+For the current two-ansatz, three-depth setup, one full MW sweep costs
+\begin{equation}
+2 \times 3 \times N \times 3
+\end{equation}
+circuits, because each random parameter sample requires \(Z\), \(X\), and
+\(Y\)-basis measurements. At \(N=20\), this is
+\begin{equation}
+2 \times 3 \times 20 \times 3 = 360
+\end{equation}
+circuits per full final sweep.
+
+The recommendation file
+\begin{verbatim}
+mw_protocol_recommendation.json
+\end{verbatim}
+records the chosen shots, chosen sample count, chosen iterations,
+target iteration half-width, min/max iteration bounds, iteration target flag,
+shot-noise bound, mean-level shot-noise bound, and the exact decision rules
+used by the pilot.
+
+\section{References}
+
+\begin{itemize}
+  \item D. A. Meyer and N. R. Wallach, ``Global entanglement in multiparticle
+  systems,'' \emph{Journal of Mathematical Physics}, 2002.
+  \item M. A. Nielsen and I. L. Chuang, \emph{Quantum Computation and Quantum
+  Information}, for Bloch-vector representation and Pauli measurements.
+  \item M. Paris and J. Rehacek, \emph{Quantum State Estimation}, 2004, for
+  quantum tomography methodology.
+  \item W. Hoeffding, ``Probability inequalities for sums of bounded random
+  variables,'' 1963, for concentration of bounded measurement outcomes.
+\end{itemize}
+
+\end{document}

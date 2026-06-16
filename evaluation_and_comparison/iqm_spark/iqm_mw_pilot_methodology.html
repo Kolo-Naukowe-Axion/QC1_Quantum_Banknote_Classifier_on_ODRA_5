@@ -1,0 +1,709 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meyer-Wallach Pilot Methodology</title>
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['$', '$'], ['\\(', '\\)']],
+        displayMath: [['$$', '$$'], ['\\[', '\\]']]
+      },
+      svg: { fontCache: 'global' }
+    };
+  </script>
+  <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+  <style>
+    :root {
+      --fg: #111827;
+      --muted: #4b5563;
+      --border: #e5e7eb;
+      --soft: #f9fafb;
+      --blue: #2563eb;
+      --blue-soft: #eff6ff;
+      --green-soft: #ecfdf5;
+      --amber-soft: #fffbeb;
+      --red-soft: #fef2f2;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+      max-width: 1040px;
+      margin: 2rem auto;
+      padding: 0 1rem 4rem;
+      color: var(--fg);
+      background: white;
+    }
+    h1, h2, h3 {
+      line-height: 1.25;
+    }
+    h1 {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.6rem;
+      margin-bottom: 0.6rem;
+    }
+    h2 {
+      margin-top: 2.2rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.3rem;
+    }
+    h3 {
+      margin-top: 1.5rem;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 1.05rem;
+      margin-top: 0;
+    }
+    .toc {
+      background: var(--soft);
+      border: 1px solid var(--border);
+      border-radius: 0.6rem;
+      padding: 1rem 1.25rem;
+      margin: 1.5rem 0;
+    }
+    .toc a {
+      color: var(--blue);
+      text-decoration: none;
+    }
+    .note, .warning, .result {
+      border-left: 4px solid var(--blue);
+      border-radius: 0.35rem;
+      padding: 0.85rem 1rem;
+      margin: 1rem 0;
+    }
+    .note {
+      background: var(--blue-soft);
+    }
+    .warning {
+      background: var(--amber-soft);
+      border-left-color: #d97706;
+    }
+    .result {
+      background: var(--green-soft);
+      border-left-color: #059669;
+    }
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: #f3f4f6;
+    }
+    code {
+      padding: 0.1rem 0.25rem;
+      border-radius: 0.25rem;
+    }
+    pre {
+      padding: 0.9rem;
+      border-radius: 0.5rem;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 1rem 0 1.4rem;
+      font-size: 0.95rem;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.45rem 0.55rem;
+      text-align: right;
+      vertical-align: top;
+    }
+    th:first-child, td:first-child,
+    th:nth-child(2), td:nth-child(2) {
+      text-align: left;
+    }
+    th {
+      background: var(--soft);
+      font-weight: 650;
+    }
+    caption {
+      caption-side: bottom;
+      color: var(--muted);
+      font-size: 0.9rem;
+      padding-top: 0.35rem;
+      text-align: left;
+    }
+    .small {
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+      margin: 1rem 0;
+    }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 0.6rem;
+      padding: 1rem;
+      background: white;
+    }
+    .card h3 {
+      margin-top: 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Meyer-Wallach Pilot Methodology</h1>
+  <p class="subtitle">
+    Precision protocol for choosing shots, random parameter samples, and repeated
+    IQM hardware iterations for the Meyer-Wallach entanglement experiment.
+  </p>
+
+  <div class="toc">
+    <strong>Contents</strong>
+    <ul>
+      <li><a href="#goal">Goal of the pilot</a></li>
+      <li><a href="#mw">What the MW score estimates</a></li>
+      <li><a href="#std-sem">Difference between <code>mw_std</code>, <code>mw_sem</code>, and 95% half-width</a></li>
+      <li><a href="#shots">Shot noise and the shot-count rule</a></li>
+      <li><a href="#samples">Sample-size rule</a></li>
+      <li><a href="#differences">Comparing two ansatze</a></li>
+      <li><a href="#current-run">Interpretation of the current final run</a></li>
+      <li><a href="#iterations">Hardware iterations and drift</a></li>
+      <li><a href="#commands">Commands and generated artifacts</a></li>
+    </ul>
+  </div>
+
+  <section id="goal">
+    <h2>Goal of the pilot</h2>
+    <p>
+      The Meyer-Wallach workflow estimates the average entanglement produced by
+      each ansatz/depth configuration under random parameter draws. The pilot is
+      not just a runtime convenience. It defines a quantitative precision rule
+      for choosing:
+    </p>
+    <ul>
+      <li><strong>shots</strong>: precision of each measured Pauli expectation,</li>
+      <li><strong>n_samples</strong>: precision of the random-parameter average,</li>
+      <li><strong>iterations</strong>: run-to-run stability under real QPU drift.</li>
+    </ul>
+    <p>
+      The runner is:
+    </p>
+    <pre><code>python scripts/run_iqm_mw_pilot.py --pilot-id mw_pilot_paper</code></pre>
+  </section>
+
+  <section id="mw">
+    <h2>What the MW score estimates</h2>
+    <p>
+      For an \(n\)-qubit pure state, the Meyer-Wallach score is
+    </p>
+    $$
+    Q(|\psi\rangle)
+    =
+    \frac{2}{n}
+    \sum_{i=1}^{n}
+    \left(1-\operatorname{Tr}(\rho_i^2)\right),
+    $$
+    <p>
+      where \(\rho_i\) is the one-qubit reduced density matrix of qubit \(i\).
+      The key simplification is that MW does not require full state tomography.
+      It only requires the one-qubit reduced density matrices.
+    </p>
+    <p>
+      Each one-qubit marginal is reconstructed from its Bloch vector:
+    </p>
+    $$
+    \rho_i
+    =
+    \frac{1}{2}
+    \left(I+x_iX+y_iY+z_iZ\right),
+    $$
+    $$
+    x_i=\langle X_i\rangle,\qquad
+    y_i=\langle Y_i\rangle,\qquad
+    z_i=\langle Z_i\rangle.
+    $$
+    <p>
+      The purity is
+    </p>
+    $$
+    \operatorname{Tr}(\rho_i^2)
+    =
+    \frac{1}{2}
+    \left(1+x_i^2+y_i^2+z_i^2\right),
+    $$
+    <p>
+      so the hardware-estimated MW score can be written as
+    </p>
+    $$
+    Q
+    =
+    1-\frac{1}{n}
+    \sum_{i=1}^{n}
+    \left(x_i^2+y_i^2+z_i^2\right).
+    $$
+    <div class="note">
+      Each random parameter sample therefore needs three circuits: one for the
+      \(Z\)-basis measurement, one for the \(X\)-basis measurement, and one for
+      the \(Y\)-basis measurement.
+    </div>
+  </section>
+
+  <section id="std-sem">
+    <h2>What <code>mw_std</code>, <code>mw_sem</code>, and 95% half-width mean</h2>
+    <p>
+      For a fixed ansatz/depth configuration, the runner draws \(N\) random
+      parameter vectors and obtains one MW score per draw:
+    </p>
+    $$
+    Q_1,\ Q_2,\ \dots,\ Q_N.
+    $$
+    <p>
+      The reported mean is
+    </p>
+    $$
+    \bar Q
+    =
+    \frac{1}{N}
+    \sum_{j=1}^{N}Q_j.
+    $$
+
+    <div class="grid">
+      <div class="card">
+        <h3><code>mw_std</code></h3>
+        <p>
+          The sample standard deviation of the individual MW scores:
+        </p>
+        $$
+        s_Q
+        =
+        \sqrt{
+        \frac{1}{N-1}
+        \sum_{j=1}^{N}
+        (Q_j-\bar Q)^2
+        }.
+        $$
+        <p>
+          It measures how much entanglement varies across random parameter
+          vectors. It is not the uncertainty of the final mean.
+        </p>
+      </div>
+      <div class="card">
+        <h3><code>mw_sem</code></h3>
+        <p>
+          The standard error of the mean:
+        </p>
+        $$
+        \operatorname{SEM}(\bar Q)
+        =
+        \frac{s_Q}{\sqrt{N}}.
+        $$
+        <p>
+          This measures how precisely the experiment estimates the mean MW for
+          that ansatz/depth configuration.
+        </p>
+      </div>
+      <div class="card">
+        <h3>95% half-width</h3>
+        <p>
+          The approximate 95% confidence half-width for the mean:
+        </p>
+        $$
+        h_{95}
+        \approx
+        1.96\operatorname{SEM}(\bar Q).
+        $$
+        <p>
+          The reported mean is then summarized as
+          \(\bar Q \pm h_{95}\), approximately.
+        </p>
+      </div>
+    </div>
+
+    <div class="warning">
+      A large <code>mw_std</code> is not necessarily bad. It can mean that the
+      ansatz produces a broad range of entanglement values over random
+      parameters. A large <code>mw_sem</code>, however, means that the mean MW is
+      not yet estimated precisely.
+    </div>
+  </section>
+
+  <section id="shots">
+    <h2>Shot noise and the shot-count rule</h2>
+    <p>
+      For one qubit \(i\) and Pauli basis \(P\in\{X,Y,Z\}\), each shot is a
+      binary outcome \(Y_s\in\{-1,+1\}\). The Pauli expectation estimator is
+    </p>
+    $$
+    \hat p_{iP}
+    =
+    \frac{1}{S}
+    \sum_{s=1}^{S}Y_s.
+    $$
+    <p>
+      Since \(Y_s^2=1\), if \(p_{iP}=\mathbb E[Y_s]\), then
+    </p>
+    $$
+    \operatorname{Var}(\hat p_{iP})
+    =
+    \frac{1-p_{iP}^2}{S}
+    \leq
+    \frac{1}{S}.
+    $$
+    <p>
+      The MW score depends on squared Pauli expectations,
+    </p>
+    $$
+    Q
+    =
+    1-\frac{1}{n}\sum_{i,P}p_{iP}^2.
+    $$
+    <p>
+      Applying the delta method,
+    </p>
+    $$
+    \operatorname{Var}(\hat Q)
+    \approx
+    \sum_{i,P}
+    \left(
+    \frac{2p_{iP}}{n}
+    \right)^2
+    \frac{1-p_{iP}^2}{S}.
+    $$
+    <p>
+      Using the Bloch-vector constraint \(x_i^2+y_i^2+z_i^2\leq1\), we get the
+      conservative single-sample shot-noise scale
+    </p>
+    $$
+    \operatorname{SD}_{\mathrm{shot}}(\hat Q)
+    \lesssim
+    \frac{2}{\sqrt{nS}}.
+    $$
+    <p>
+      For \(n=5\) and \(S=1024\), as in the current final run,
+    </p>
+    $$
+    \frac{2}{\sqrt{5\cdot1024}}
+    \approx
+    0.028.
+    $$
+    <p>
+      Averaging over \(N=60\) random parameter samples reduces the mean-level
+      contribution to
+    </p>
+    $$
+    \frac{0.028}{\sqrt{60}}
+    \approx
+    0.0036.
+    $$
+    <div class="note">
+      The pilot shot rule checks whether increasing shots changes the observed
+      mean MW by less than a tolerance, by default \(0.02\) MW units.
+    </div>
+  </section>
+
+  <section id="samples">
+    <h2>Sample-size rule</h2>
+    <p>
+      Once shots are fixed, the dominant uncertainty is usually Monte Carlo
+      variation over random parameter draws. The pilot uses the half-width rule
+    </p>
+    $$
+    h_N
+    =
+    1.96\frac{s_Q}{\sqrt{N}}
+    \leq
+    h_{\mathrm{target}}.
+    $$
+    <p>
+      The default target is
+    </p>
+    $$
+    h_{\mathrm{target}}=0.03.
+    $$
+    <p>
+      Rearranging gives the required number of samples:
+    </p>
+    $$
+    N_{\mathrm{req}}
+    =
+    \left\lceil
+    \left(
+    \frac{1.96\,s_Q}{h_{\mathrm{target}}}
+    \right)^2
+    \right\rceil.
+    $$
+    <p>
+      This is why simply increasing samples can make a mean more precise, but
+      the cost grows quadratically with the desired reduction in half-width.
+    </p>
+  </section>
+
+  <section id="differences">
+    <h2>Comparing two ansatze</h2>
+    <p>
+      To compare ODRA and simulator at the same depth, define the difference
+    </p>
+    $$
+    d
+    =
+    \bar Q_{\mathrm{ODRA}}
+    -
+    \bar Q_{\mathrm{Simulator}}.
+    $$
+    <p>
+      Assuming independent random-parameter samples, the standard error of the
+      difference is
+    </p>
+    $$
+    \operatorname{SE}(d)
+    =
+    \sqrt{
+    \operatorname{SEM}_{\mathrm{ODRA}}^2
+    +
+    \operatorname{SEM}_{\mathrm{Simulator}}^2
+    }.
+    $$
+    <p>
+      The approximate 95% half-width for the difference is
+    </p>
+    $$
+    h_{95}(d)
+    \approx
+    1.96\,\operatorname{SE}(d).
+    $$
+    <p>
+      If \(|d| \ll h_{95}(d)\), then the two means are not distinguishable at
+      this precision. If \(|d|\) is larger than the half-width, the observed
+      difference is resolvable statistically, but should still be checked
+      against QPU drift if the effect is small.
+    </p>
+  </section>
+
+  <section id="current-run">
+    <h2>Current run: <code>mw_final_depths_2_4_6</code></h2>
+    <p>
+      The current final run uses \(N=60\) random parameter samples and \(S=1024\)
+      shots. The table below summarizes the precision implied by
+      <code>iqm_mw_results.csv</code>.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Ansatz</th>
+          <th>Depth</th>
+          <th>Mean MW</th>
+          <th>mw_std</th>
+          <th>mw_sem</th>
+          <th>95% half-width</th>
+          <th>MW range</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>ansatz_odra</td>
+          <td>2</td>
+          <td>0.6816</td>
+          <td>0.1188</td>
+          <td>0.0153</td>
+          <td>0.0301</td>
+          <td>0.3190-0.8784</td>
+        </tr>
+        <tr>
+          <td>ansatz_simulator</td>
+          <td>2</td>
+          <td>0.6882</td>
+          <td>0.1065</td>
+          <td>0.0137</td>
+          <td>0.0269</td>
+          <td>0.4164-0.9082</td>
+        </tr>
+        <tr>
+          <td>ansatz_odra</td>
+          <td>4</td>
+          <td>0.9371</td>
+          <td>0.0300</td>
+          <td>0.0039</td>
+          <td>0.0076</td>
+          <td>0.8649-0.9830</td>
+        </tr>
+        <tr>
+          <td>ansatz_simulator</td>
+          <td>4</td>
+          <td>0.9371</td>
+          <td>0.0331</td>
+          <td>0.0043</td>
+          <td>0.0084</td>
+          <td>0.8077-0.9807</td>
+        </tr>
+        <tr>
+          <td>ansatz_odra</td>
+          <td>6</td>
+          <td>0.9758</td>
+          <td>0.0097</td>
+          <td>0.0013</td>
+          <td>0.0025</td>
+          <td>0.9476-0.9940</td>
+        </tr>
+        <tr>
+          <td>ansatz_simulator</td>
+          <td>6</td>
+          <td>0.9688</td>
+          <td>0.0120</td>
+          <td>0.0015</td>
+          <td>0.0030</td>
+          <td>0.9375-0.9891</td>
+        </tr>
+      </tbody>
+      <caption>
+        95% half-width is computed as \(1.96\times\texttt{mw_sem}\).
+      </caption>
+    </table>
+
+    <h3>Depth-wise ansatz differences</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Depth</th>
+          <th>Difference \(Q_{\mathrm{ODRA}}-Q_{\mathrm{Simulator}}\)</th>
+          <th>SE of difference</th>
+          <th>95% half-width</th>
+          <th>Interpretation</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>2</td>
+          <td>-0.0066</td>
+          <td>0.0206</td>
+          <td>0.0404</td>
+          <td>Not distinguishable; the gap is much smaller than uncertainty.</td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td>-0.0000</td>
+          <td>0.0058</td>
+          <td>0.0113</td>
+          <td>Indistinguishable; means are essentially identical.</td>
+        </tr>
+        <tr>
+          <td>6</td>
+          <td>+0.0070</td>
+          <td>0.0020</td>
+          <td>0.0039</td>
+          <td>Small resolvable difference, but should be checked against drift.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="result">
+      For the current data, depth 2 and depth 4 do not support a claim that the
+      two ansatze differ in Meyer-Wallach entanglement. Depth 6 shows a small
+      ODRA advantage in MW, but because the absolute effect is only about
+      \(0.007\), repeated iterations are recommended before making a strong
+      hardware-level claim.
+    </div>
+  </section>
+
+  <section id="iterations">
+    <h2>Hardware iterations and drift</h2>
+    <p>
+      The statistics above use random-parameter uncertainty. They do not include
+      time-dependent QPU drift. To estimate drift, repeat the frozen final
+      protocol with the same seed and choose the smallest number of iterations
+      \(K\) whose worst-case 95% half-width meets a drift target.
+    </p>
+    <p>
+      For repeated hardware sweeps \(\bar Q_1,\bar Q_2,\dots,\bar Q_K\) at fixed
+      shots and \(N\), define the iteration standard deviation
+      \(s_{\mathrm{iter}}\) and Student-\(t\) 95% half-width
+    </p>
+    $$
+    h_{\mathrm{iter}}
+    =
+    t_{0.975,K-1}\,
+    \frac{s_{\mathrm{iter}}}{\sqrt{K}}.
+    $$
+    <p>
+      Choose the smallest \(K \ge K_{\min}\) such that
+    </p>
+    $$
+    \max_{\text{ansatz, depth}} h_{\mathrm{iter}} \le h_{\mathrm{target}}.
+    $$
+    <p>
+      Defaults are <code>--min-iterations 3</code>,
+      <code>--max-iterations 5</code>, and
+      <code>--target-iteration-half-width 0.01</code>. Use
+      <code>0.02</code> for qualitative depth trends.
+    </p>
+    <p>
+      After shots and samples are already frozen, run only the drift pilot:
+    </p>
+    <pre><code>python scripts/run_iqm_mw_pilot.py \
+  --drift-only \
+  --shots 1024 \
+  --samples 60 \
+  --target-iteration-half-width 0.01 \
+  --min-iterations 3 \
+  --max-iterations 5 \
+  --pilot-id mw_drift_pilot_final</code></pre>
+    <p>
+      Because the seed is fixed, the random parameter vectors are reused.
+      Iteration-to-iteration changes then mainly reflect calibration drift,
+      queue-time effects, residual shot noise, and other hardware variability.
+    </p>
+    <p>
+      Report both:
+    </p>
+    <ul>
+      <li>\(\operatorname{SEM}\) or 95% half-width across random samples, and</li>
+      <li>\(h_{\mathrm{iter}}\) across repeated frozen hardware sweeps.</li>
+    </ul>
+  </section>
+
+  <section id="commands">
+    <h2>Commands and generated artifacts</h2>
+    <p>Recommended full paper-quality pilot:</p>
+    <pre><code>python scripts/run_iqm_mw_pilot.py \
+  --pilot-id mw_full_precision_pilot \
+  --shot-grid 512 1024 2048 4096 \
+  --sample-grid 10 20 40 60 \
+  --pilot-samples 10 \
+  --shot-tolerance 0.02 \
+  --target-half-width 0.03 \
+  --target-iteration-half-width 0.01 \
+  --min-iterations 3 \
+  --max-iterations 5</code></pre>
+
+    <p>The pilot writes:</p>
+    <ul>
+      <li><code>mw_protocol_recommendation.json</code></li>
+      <li><code>shot_pilot_summary.csv</code></li>
+      <li><code>shot_stability.csv</code></li>
+      <li><code>shot_stability_aggregate.csv</code></li>
+      <li><code>sample_pilot_summary.csv</code></li>
+      <li><code>sample_precision.csv</code></li>
+      <li><code>sample_precision_aggregate.csv</code></li>
+      <li><code>iteration_summary.csv</code></li>
+      <li><code>iteration_stability.csv</code></li>
+      <li><code>iteration_precision.csv</code></li>
+      <li><code>iteration_precision_aggregate.csv</code></li>
+    </ul>
+
+    <p>One full final MW sweep costs</p>
+    $$
+    2 \times 3 \times N \times 3
+    $$
+    <p>
+      circuits for two ansatze, three depths, \(N\) samples, and three basis
+      measurements. At \(N=60\), this is \(1080\) circuits.
+    </p>
+  </section>
+
+  <section>
+    <h2>References</h2>
+    <ul>
+      <li>Meyer and Wallach, "Global entanglement in multiparticle systems", <em>Journal of Mathematical Physics</em>, 2002.</li>
+      <li>Nielsen and Chuang, <em>Quantum Computation and Quantum Information</em>, for Bloch-vector representation and Pauli measurements.</li>
+      <li>Paris and Rehacek, <em>Quantum State Estimation</em>, 2004, for quantum tomography methodology.</li>
+      <li>Hoeffding, "Probability inequalities for sums of bounded random variables", 1963.</li>
+    </ul>
+  </section>
+</body>
+</html>

@@ -26,14 +26,18 @@ from qbanknote.ansatzes import (  # noqa: E402
 from qbanknote.data import load_fold_arrays, set_random_seed  # noqa: E402
 from qbanknote.metrics import (  # noqa: E402
     bloch_row_to_score_row,
+    choose_mw_iterations,
     choose_mw_samples,
     choose_mw_shots,
     completed_mw_jobs,
+    compute_mw_iteration_precision,
     compute_mw_iteration_stability,
     compute_mw_sample_precision,
     compute_mw_shot_stability,
+    mw_iteration_half_width,
     mw_mean_shot_noise_bound,
     mw_shot_noise_sd_bound,
+    mw_student_t_975,
     run_kl_self_check,
     run_mw_self_check,
     summary_row_from_result,
@@ -373,13 +377,94 @@ def test_mw_protocol_precision_helpers(tmp_path: Path) -> None:
     iteration_stability = compute_mw_iteration_stability(iteration_summary)
     assert float(iteration_stability["iteration_std_mw_avg"].iloc[0]) > 0
 
+    assert abs(mw_student_t_975(3) - 4.303) < 1e-3
+    assert abs(mw_student_t_975(4) - 3.182) < 1e-3
+    assert abs(mw_student_t_975(5) - 2.776) < 1e-3
+    assert mw_student_t_975(20) == 1.96
+    half_width = mw_iteration_half_width(0.02, 5)
+    assert abs(half_width - 2.776 * 0.02 / np.sqrt(5)) < 1e-9
+
+    stable_iteration_summary = pd.DataFrame(
+        [
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "shots": 1024,
+                "n_samples": 40,
+                "iteration": iteration,
+                "mw_avg": 0.50 + 0.001 * iteration,
+            }
+            for iteration in range(1, 4)
+        ]
+        + [
+            {
+                "ansatz": "ansatz_simulator",
+                "depth": 2,
+                "shots": 1024,
+                "n_samples": 40,
+                "iteration": iteration,
+                "mw_avg": 0.40 + 0.001 * iteration,
+            }
+            for iteration in range(1, 4)
+        ]
+    )
+    iteration_precision, iteration_precision_aggregate = compute_mw_iteration_precision(
+        stable_iteration_summary,
+        target_half_width=0.01,
+    )
+    assert not iteration_precision.empty
+    assert bool(iteration_precision_aggregate.iloc[0]["all_meet_target"])
+    assert choose_mw_iterations(
+        stable_iteration_summary,
+        target_half_width=0.01,
+        min_iterations=3,
+        max_iterations=5,
+    ) == 3
+
+    noisy_iteration_summary = pd.DataFrame(
+        [
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "shots": 1024,
+                "n_samples": 40,
+                "iteration": iteration,
+                "mw_avg": 0.50 + 0.05 * ((-1) ** iteration),
+            }
+            for iteration in range(1, 4)
+        ]
+        + [
+            {
+                "ansatz": "ansatz_simulator",
+                "depth": 2,
+                "shots": 1024,
+                "n_samples": 40,
+                "iteration": iteration,
+                "mw_avg": 0.40 + 0.04 * ((-1) ** iteration),
+            }
+            for iteration in range(1, 4)
+        ]
+    )
+    noisy_precision, noisy_aggregate = compute_mw_iteration_precision(
+        noisy_iteration_summary,
+        target_half_width=0.01,
+    )
+    assert not bool(noisy_aggregate.iloc[0]["all_meet_target"])
+    assert choose_mw_iterations(
+        noisy_iteration_summary,
+        target_half_width=0.01,
+        min_iterations=3,
+        max_iterations=5,
+    ) == 5
+
     report_path = write_mw_protocol_artifacts(
         tmp_path,
-        recommendation={"chosen_shots": 1024, "chosen_n_samples": 40},
+        recommendation={"chosen_shots": 1024, "chosen_n_samples": 40, "chosen_iterations": 3},
         frames={
             "shot_stability": detailed,
             "sample_precision": precision,
             "iteration_stability": iteration_stability,
+            "iteration_precision": iteration_precision,
         },
     )
     assert report_path.exists()
@@ -542,10 +627,55 @@ def test_cli_argument_parsing() -> None:
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None
         spec.loader.exec_module(module)
-        parser = argparse.ArgumentParser()
-        if hasattr(module, "parse_args"):
-            # Exercise parse_args by calling with empty argv via helper attributes
-            assert callable(module.parse_args)
+        assert callable(module.parse_args)
+
+    pilot_path = ROOT / "scripts" / "run_iqm_mw_pilot.py"
+    pilot_spec = importlib.util.spec_from_file_location("run_iqm_mw_pilot", pilot_path)
+    pilot_module = importlib.util.module_from_spec(pilot_spec)
+    assert pilot_spec.loader is not None
+    pilot_spec.loader.exec_module(pilot_module)
+    original_argv = sys.argv
+    try:
+        sys.argv = [
+            "run_iqm_mw_pilot.py",
+            "--drift-only",
+            "--shots",
+            "1024",
+            "--samples",
+            "60",
+            "--target-iteration-half-width",
+            "0.01",
+            "--min-iterations",
+            "3",
+            "--max-iterations",
+            "5",
+        ]
+        pilot_args = pilot_module.parse_args()
+    finally:
+        sys.argv = original_argv
+    assert pilot_args.drift_only is True
+    assert pilot_args.shots == 1024
+    assert pilot_args.samples == 60
+    assert pilot_args.target_iteration_half_width == 0.01
+
+    mw_path = ROOT / "scripts" / "run_iqm_meyer_wallach.py"
+    mw_spec = importlib.util.spec_from_file_location("run_iqm_meyer_wallach", mw_path)
+    mw_module = importlib.util.module_from_spec(mw_spec)
+    assert mw_spec.loader is not None
+    mw_spec.loader.exec_module(mw_module)
+    try:
+        sys.argv = [
+            "run_iqm_meyer_wallach.py",
+            "--iterations",
+            "3",
+            "--target-iteration-half-width",
+            "0.02",
+        ]
+        mw_args = mw_module.parse_args()
+    finally:
+        sys.argv = original_argv
+    assert mw_args.iterations == 3
+    assert mw_args.target_iteration_half_width == 0.02
 
 
 if __name__ == "__main__":
