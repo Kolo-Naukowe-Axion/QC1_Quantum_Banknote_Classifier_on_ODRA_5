@@ -1,0 +1,42 @@
+{
+  "ansatzes": [
+    "ansatz_odra",
+    "ansatz_simulator"
+  ],
+  "chosen_n_samples": 60,
+  "chosen_shots": 1024,
+  "confidence_z": 1.96,
+  "depths": [
+    2,
+    4,
+    6
+  ],
+  "iqm_url": "https://odra5.e-science.pl/",
+  "iterations_run": 0,
+  "mean_shot_noise_bound_at_chosen_samples": 0.003608439182435161,
+  "methodology": {
+    "iteration_rule": "Repeat frozen protocol with identical seed to estimate hardware drift separately.",
+    "sample_rule": "Choose smallest n_samples whose worst 95% half-width is <= target_half_width; otherwise use required_n_samples.",
+    "shot_rule": "Choose smallest shot count whose max consecutive MW mean change is <= shot_tolerance."
+  },
+  "output_root": "C:\\Users\\iwowo\\Documents\\uni\\axion\\QC1_Quantum_Banknote_Classifier_on_ODRA_5\\evaluation_and_comparison\\iqm_spark\\iqm_mw_outputs\\pilots\\mw_pilot_depths_2_4_6",
+  "pilot_id": "mw_pilot_depths_2_4_6",
+  "pilot_samples": 10,
+  "recommended_iterations_minimum": 3,
+  "sample_grid": [
+    10,
+    20,
+    40,
+    60,
+    80
+  ],
+  "shot_grid": [
+    512,
+    1024,
+    2048,
+    4096
+  ],
+  "shot_tolerance": 0.02,
+  "single_sample_shot_noise_sd_bound": 0.02795084971874737,
+  "target_half_width": 0.03
+}

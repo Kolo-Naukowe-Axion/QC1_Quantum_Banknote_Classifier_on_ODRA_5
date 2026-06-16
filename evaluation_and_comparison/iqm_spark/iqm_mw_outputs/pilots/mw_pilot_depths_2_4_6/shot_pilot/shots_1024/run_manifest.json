@@ -1,0 +1,29 @@
+{
+  "ansatzes": [
+    "ansatz_odra",
+    "ansatz_simulator"
+  ],
+  "backend": "<iqm.qiskit_iqm.iqm_provider.IQMBackend object at 0x000001D7D7DBF4D0>",
+  "created_utc": "2026-06-16T13:23:21.834888+00:00",
+  "depths": [
+    2,
+    4,
+    6
+  ],
+  "iqm_url": "https://odra5.e-science.pl/",
+  "max_circuits_per_job": 275,
+  "method": "local_xyz_tomography",
+  "n_qubits": 5,
+  "n_samples": 10,
+  "optimization_level": 1,
+  "outputs": [
+    "iqm_mw_results.csv",
+    "iqm_mw_scores.csv"
+  ],
+  "pilot_id": "mw_pilot_depths_2_4_6",
+  "pilot_stage": "shot_pilot",
+  "seed": 42,
+  "shots": 1024,
+  "source_script": "scripts/run_iqm_meyer_wallach.py",
+  "total_circuits": 180
+}
