@@ -1,6 +1,0 @@
-outputs/
-__pycache__/
-*.pyc
-.venv/
-setup/cross_validation/Models/Weights/**/*.pth
-setup/cross_validation/Data/**/test_data.csv
