@@ -798,15 +798,21 @@ def sample_hardware_fidelities(
     seed_transpiler: int | None,
     max_circuits_per_job: int,
     ansatz_label: str = "",
+    completed_samples: set[int] | None = None,
+    on_sample_complete: Callable[[dict[str, object]], None] | None = None,
 ) -> list[dict[str, object]]:
     qc_template = ansatz_fn(n_qubits, depth)
     n_params = len(qc_template.parameters)
     rng = np.random.default_rng(seed)
     rows: list[dict[str, object]] = []
+    skip_samples = completed_samples or set()
 
     for sample_index in range(n_samples):
         theta_a = rng.uniform(0.0, 2.0 * np.pi, n_params)
         theta_b = rng.uniform(0.0, 2.0 * np.pi, n_params)
+        if sample_index in skip_samples:
+            continue
+
         bound_a = bind_ansatz(ansatz_fn, n_qubits, depth, theta_a)
         bound_b = bind_ansatz(ansatz_fn, n_qubits, depth, theta_b)
 
@@ -844,21 +850,22 @@ def sample_hardware_fidelities(
             f"    F (physical proj.) = {f_phys:.4f}"
         )
 
-        rows.append(
-            {
-                "sample_index": sample_index,
-                "fidelity_linear": f_lin,
-                "fidelity_physical": f_phys,
-                "trace_a_linear": diag_a["trace_linear"],
-                "trace_a_physical": diag_a["trace_physical"],
-                "trace_b_linear": diag_b["trace_linear"],
-                "trace_b_physical": diag_b["trace_physical"],
-                "purity_a_linear": diag_a["purity_linear"],
-                "purity_a_physical": diag_a["purity_physical"],
-                "purity_b_linear": diag_b["purity_linear"],
-                "purity_b_physical": diag_b["purity_physical"],
-            }
-        )
+        row = {
+            "sample_index": sample_index,
+            "fidelity_linear": f_lin,
+            "fidelity_physical": f_phys,
+            "trace_a_linear": diag_a["trace_linear"],
+            "trace_a_physical": diag_a["trace_physical"],
+            "trace_b_linear": diag_b["trace_linear"],
+            "trace_b_physical": diag_b["trace_physical"],
+            "purity_a_linear": diag_a["purity_linear"],
+            "purity_a_physical": diag_a["purity_physical"],
+            "purity_b_linear": diag_b["purity_linear"],
+            "purity_b_physical": diag_b["purity_physical"],
+        }
+        rows.append(row)
+        if on_sample_complete is not None:
+            on_sample_complete(row)
 
     return rows
 
@@ -953,6 +960,45 @@ def completed_kl_jobs(summary_path: Path) -> set[tuple[str, int]]:
         kl_job_key(str(row.ansatz), int(row.depth))
         for row in frame.itertuples(index=False)
     }
+
+
+def completed_kl_samples(
+    fidelities_path: Path,
+    ansatz: str,
+    depth: int,
+) -> set[int]:
+    """Return sample indices already stored for one (ansatz, depth) job."""
+    frame = read_csv_or_empty(fidelities_path)
+    if frame.empty or "sample_index" not in frame.columns:
+        return set()
+    subset = frame[
+        (frame["ansatz"].astype(str) == str(ansatz))
+        & (frame["depth"].astype(int) == int(depth))
+    ]
+    if subset.empty:
+        return set()
+    return {int(value) for value in subset["sample_index"]}
+
+
+def load_kl_job_fidelity_rows(
+    fidelities_path: Path,
+    ansatz: str,
+    depth: int,
+) -> list[dict[str, object]]:
+    """Load per-sample fidelity rows for one (ansatz, depth) job, sorted by index."""
+    frame = read_csv_or_empty(fidelities_path)
+    if frame.empty or "sample_index" not in frame.columns:
+        return []
+    subset = frame[
+        (frame["ansatz"].astype(str) == str(ansatz))
+        & (frame["depth"].astype(int) == int(depth))
+    ].sort_values("sample_index")
+    rows: list[dict[str, object]] = []
+    for record in subset.to_dict(orient="records"):
+        row = {key: record[key] for key in record if key not in ("ansatz", "depth")}
+        row["sample_index"] = int(row["sample_index"])
+        rows.append(row)
+    return rows
 
 
 def kl_summary_row(
@@ -1050,11 +1096,28 @@ def run_iqm_kl_sweep(
         if (ansatz_name, depth) in completed:
             continue
 
-        if verbose:
+        depth_seed = seed + 100 * depth + (1 if ansatz_name == "ansatz_simulator" else 0)
+        saved_samples = completed_kl_samples(fidelities_path, ansatz_name, depth) if resume else set()
+        existing_rows = (
+            load_kl_job_fidelity_rows(fidelities_path, ansatz_name, depth) if resume else []
+        )
+
+        if saved_samples and verbose:
+            print(
+                f"Resuming {ansatz_name} depth={depth}: "
+                f"{len(saved_samples)}/{n_samples} samples on disk",
+                flush=True,
+            )
+        elif verbose:
             print(f"Running {ansatz_name} depth={depth}", flush=True)
 
-        depth_seed = seed + 100 * depth + (1 if ansatz_name == "ansatz_simulator" else 0)
-        sample_rows = sample_hardware_fidelities(
+        def _persist_sample(row: dict[str, object]) -> None:
+            append_csv_row(
+                fidelities_path,
+                fidelity_row_to_csv(ansatz_name, depth, row),
+            )
+
+        new_rows = sample_hardware_fidelities(
             backend,
             ansatz_fns[ansatz_name],
             n_qubits=n_qubits,
@@ -1066,9 +1129,27 @@ def run_iqm_kl_sweep(
             seed_transpiler=seed_transpiler,
             max_circuits_per_job=max_circuits_per_job,
             ansatz_label=ansatz_name,
+            completed_samples=saved_samples,
+            on_sample_complete=_persist_sample if resume else None,
         )
+
+        if not resume:
+            for row in new_rows:
+                append_csv_row(
+                    fidelities_path,
+                    fidelity_row_to_csv(ansatz_name, depth, row),
+                )
+
+        sample_rows = existing_rows + new_rows
+        sample_rows.sort(key=lambda row: int(row["sample_index"]))
+        if len(sample_rows) < n_samples:
+            raise RuntimeError(
+                f"Incomplete KL job {ansatz_name} depth={depth}: "
+                f"expected {n_samples} samples, got {len(sample_rows)}"
+            )
+
         result = aggregate_kl_from_sample_rows(
-            sample_rows,
+            sample_rows[:n_samples],
             n_qubits=n_qubits,
             n_bins=n_bins,
             eps=eps,
@@ -1085,11 +1166,6 @@ def run_iqm_kl_sweep(
                 result=result,
             ),
         )
-        for row in sample_rows:
-            append_csv_row(
-                fidelities_path,
-                fidelity_row_to_csv(ansatz_name, depth, row),
-            )
 
         done_jobs += 1
         report_progress(progress_callback, "kl_jobs", done_jobs, total_jobs)

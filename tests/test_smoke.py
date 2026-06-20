@@ -34,6 +34,7 @@ from qbanknote.metrics import (  # noqa: E402
     choose_mw_samples,
     choose_mw_shots,
     completed_kl_jobs,
+    completed_kl_samples,
     completed_mw_jobs,
     compute_kl_bin_sensitivity,
     compute_kl_iteration_precision,
@@ -44,6 +45,7 @@ from qbanknote.metrics import (  # noqa: E402
     compute_mw_sample_precision,
     compute_mw_shot_stability,
     kl_summary_row,
+    load_kl_job_fidelity_rows,
     mw_iteration_half_width,
     mw_mean_shot_noise_bound,
     mw_shot_noise_sd_bound,
@@ -605,6 +607,23 @@ def test_kl_protocol_precision_helpers(tmp_path: Path) -> None:
         ),
     )
     assert completed_kl_jobs(summary_path) == {("ansatz_odra", 2)}
+
+    fidelities_path = tmp_path / "iqm_kl_fidelities.csv"
+    for sample_index in (0, 2):
+        append_csv_row(
+            fidelities_path,
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 4,
+                "sample_index": sample_index,
+                "fidelity_linear": 0.1 + sample_index,
+                "fidelity_physical": 0.2 + sample_index,
+            },
+        )
+    assert completed_kl_samples(fidelities_path, "ansatz_odra", 4) == {0, 2}
+    loaded = load_kl_job_fidelity_rows(fidelities_path, "ansatz_odra", 4)
+    assert [int(row["sample_index"]) for row in loaded] == [0, 2]
+    assert loaded[1]["fidelity_physical"] == 0.4
 
     iteration_summary = pd.DataFrame(
         [
