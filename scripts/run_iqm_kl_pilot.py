@@ -21,6 +21,7 @@ from qbanknote.ansatzes import (  # noqa: E402
 )
 from qbanknote.iqm import connect_to_iqm_backend  # noqa: E402
 from qbanknote.metrics import (  # noqa: E402
+    KlPilotFallbackError,
     choose_kl_bins,
     choose_kl_iterations,
     choose_kl_samples,
@@ -42,9 +43,11 @@ DEFAULT_OUTPUT_ROOT = "evaluation_and_comparison/iqm_spark/iqm_kl_outputs"
 DEFAULT_DEPTHS = [2, 4, 6]
 DEFAULT_SHOT_PILOT_DEPTHS = [2, 4, 6]
 DEFAULT_ANSATZES = ("ansatz_odra", "ansatz_simulator")
-DEFAULT_SHOT_GRID = [512, 1024, 2048, 4096]
-DEFAULT_SAMPLE_GRID = [5, 8, 10, 12, 15]
-DEFAULT_BIN_GRID = [50, 75, 100, 150, 200]
+DEFAULT_SHOT_GRID = [512, 1024, 2048, 4096, 8192]
+MAX_SHOT_GRID = 8192
+DEFAULT_SAMPLE_GRID = [5, 8, 10, 12, 15, 20, 25, 30]
+DEFAULT_MAX_SAMPLES = 30
+DEFAULT_BIN_GRID = [50, 75, 100, 150, 200, 250, 300, 400]
 DEFAULT_PILOT_SAMPLES = 3
 MINUTES_PER_FIDELITY_PAIR = 4.0
 
@@ -68,7 +71,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-samples",
         type=int,
-        default=15,
+        default=DEFAULT_MAX_SAMPLES,
         help="Fidelity pairs collected once for offline prefix/sample analysis.",
     )
     parser.add_argument(
@@ -170,6 +173,15 @@ def _validate_positive_ints(name: str, values: list[int]) -> list[int]:
     clean = sorted(set(int(value) for value in values))
     if not clean or any(value <= 0 for value in clean):
         raise SystemExit(f"{name} must contain positive integers")
+    return clean
+
+
+def _validate_shot_grid(values: list[int]) -> list[int]:
+    clean = _validate_positive_ints("shot-grid", values)
+    if max(clean) > MAX_SHOT_GRID:
+        raise SystemExit(
+            f"shot-grid must not exceed {MAX_SHOT_GRID}; got max={max(clean)}"
+        )
     return clean
 
 
@@ -379,7 +391,6 @@ def main() -> None:
         chosen_bins = choose_kl_bins(
             bin_sensitivity_aggregate,
             tolerance=args.bin_tolerance,
-            fallback=max(bin_grid),
         )
         if not args.quiet:
             print(f"Chosen n_bins: {chosen_bins}")
@@ -412,7 +423,7 @@ def main() -> None:
         backend = connect_to_iqm_backend(args.iqm_url, token=args.iqm_token)
         progress_callback = None if args.quiet else make_print_callback()
 
-        shot_grid = _validate_positive_ints("shot-grid", args.shot_grid)
+        shot_grid = _validate_shot_grid(args.shot_grid)
         sample_grid = _validate_positive_ints("sample-grid", args.sample_grid)
         if args.pilot_samples <= 0:
             raise SystemExit("--pilot-samples must be positive")
@@ -621,4 +632,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KlPilotFallbackError as exc:
+        print(f"\nKL pilot aborted: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc

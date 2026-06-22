@@ -26,6 +26,9 @@ from qbanknote.ansatzes import (  # noqa: E402
 from qbanknote.data import load_fold_arrays, set_random_seed  # noqa: E402
 from qbanknote.metrics import (  # noqa: E402
     bloch_row_to_score_row,
+    KlPilotFallbackError,
+    aggregate_kl_from_sample_rows,
+    analyze_kl_qpu_sim_haar_jobs,
     choose_kl_bins,
     choose_kl_iterations,
     choose_kl_samples,
@@ -37,6 +40,7 @@ from qbanknote.metrics import (  # noqa: E402
     completed_kl_samples,
     completed_mw_jobs,
     compute_kl_bin_sensitivity,
+    compute_kl_between_fidelity_samples,
     compute_kl_iteration_precision,
     compute_kl_prefix_precision,
     compute_kl_shot_stability,
@@ -44,15 +48,20 @@ from qbanknote.metrics import (  # noqa: E402
     compute_mw_iteration_stability,
     compute_mw_sample_precision,
     compute_mw_shot_stability,
+    compute_statevector_fidelities_for_job,
+    kl_depth_seed,
     kl_summary_row,
     load_kl_job_fidelity_rows,
     mw_iteration_half_width,
     mw_mean_shot_noise_bound,
     mw_shot_noise_sd_bound,
     mw_student_t_975,
+    reproduce_pairwise_thetas,
+    resolve_kl_run_data_dir,
     run_kl_self_check,
     run_mw_self_check,
     summary_row_from_result,
+    write_kl_comparison_artifacts,
     write_kl_protocol_artifacts,
     write_mw_protocol_artifacts,
 )
@@ -498,8 +507,15 @@ def test_kl_protocol_precision_helpers(tmp_path: Path) -> None:
         n_trials=20,
     )
     assert not bin_aggregate.empty
-    chosen_bins = choose_kl_bins(bin_aggregate, tolerance=0.05, fallback=150)
+    chosen_bins = choose_kl_bins(bin_aggregate, tolerance=0.05)
     assert chosen_bins in {50, 100, 150}
+
+    try:
+        choose_kl_bins(bin_aggregate, tolerance=1e-6)
+    except KlPilotFallbackError:
+        pass
+    else:
+        raise AssertionError("expected KlPilotFallbackError for strict bin tolerance")
 
     shot_summary = pd.DataFrame(
         [
@@ -680,6 +696,85 @@ def test_kl_protocol_precision_helpers(tmp_path: Path) -> None:
     )
     assert report_path.exists()
     assert (tmp_path / "shot_stability.csv").exists()
+
+
+def test_kl_qpu_sim_haar_analysis(tmp_path: Path) -> None:
+    n_qubits = 5
+    depth = 2
+    ansatz = "ansatz_odra"
+    base_seed = 42
+    depth_seed = kl_depth_seed(base_seed, depth, ansatz)
+    n_samples = 5
+    n_bins = 50
+    eps = 1e-12
+
+    f_sim = compute_statevector_fidelities_for_job(
+        odra_ansatz,
+        n_qubits=n_qubits,
+        depth=depth,
+        n_samples=n_samples,
+        seed=depth_seed,
+    )
+    assert len(f_sim) == n_samples
+
+    fidelities_path = tmp_path / "iqm_kl_fidelities.csv"
+    for sample_index, fidelity in enumerate(f_sim):
+        append_csv_row(
+            fidelities_path,
+            {
+                "ansatz": ansatz,
+                "depth": depth,
+                "sample_index": sample_index,
+                "fidelity_linear": float(fidelity),
+                "fidelity_physical": float(fidelity),
+            },
+        )
+
+    result = aggregate_kl_from_sample_rows(
+        load_kl_job_fidelity_rows(fidelities_path, ansatz, depth),
+        n_qubits=n_qubits,
+        n_bins=n_bins,
+        eps=eps,
+    )
+    append_csv_row(
+        tmp_path / "iqm_kl_results.csv",
+        kl_summary_row(
+            ansatz=ansatz,
+            depth=depth,
+            shots=1024,
+            seed=depth_seed,
+            n_bins=n_bins,
+            eps=eps,
+            result=result,
+        ),
+    )
+
+    comparison = analyze_kl_qpu_sim_haar_jobs(
+        tmp_path,
+        ansatz_fns={"ansatz_odra": odra_ansatz, "ansatz_simulator": simulator_ansatz},
+    )
+    assert len(comparison) == 1
+    row = comparison.iloc[0]
+    assert abs(float(row["kl_qpu_haar"]) - float(row["kl_sim_haar"])) < 1e-9
+    assert float(row["kl_qpu_sim"]) < 1e-9
+    assert float(row["f_gap_mean_abs"]) < 1e-9
+
+    out_csv = write_kl_comparison_artifacts(tmp_path, comparison)
+    assert out_csv.exists()
+    assert resolve_kl_run_data_dir(tmp_path) == tmp_path
+
+    theta_a1, theta_b1 = reproduce_pairwise_thetas(depth_seed, 10, 0)
+    theta_a2, theta_b2 = reproduce_pairwise_thetas(depth_seed, 10, 0)
+    assert np.allclose(theta_a1, theta_a2)
+    assert np.allclose(theta_b1, theta_b2)
+
+    kl_cross = compute_kl_between_fidelity_samples(
+        f_sim,
+        f_sim,
+        n_bins=n_bins,
+        eps=eps,
+    )
+    assert kl_cross < 1e-9
 
 
 def _synthetic_summary_df() -> pd.DataFrame:
@@ -881,7 +976,10 @@ def test_cli_argument_parsing() -> None:
         kl_pilot_args = kl_pilot_module.parse_args()
     finally:
         sys.argv = original_argv
-    assert kl_pilot_args.shot_grid == [512, 1024, 2048, 4096]
+    assert kl_pilot_args.shot_grid == [512, 1024, 2048, 4096, 8192]
+    assert kl_pilot_args.sample_grid == [5, 8, 10, 12, 15, 20, 25, 30]
+    assert kl_pilot_args.bin_grid == [50, 75, 100, 150, 200, 250, 300, 400]
+    assert kl_pilot_args.max_samples == 30
     assert kl_pilot_args.shot_pilot_depth == [2, 4, 6]
     assert kl_pilot_args.pilot_samples == 3
     budget = kl_pilot_module.estimate_kl_pilot_budget(
@@ -894,8 +992,8 @@ def test_cli_argument_parsing() -> None:
         max_iterations=kl_pilot_args.max_iterations,
         drift_only=False,
     )
-    assert budget["shot_pairs"] == 72
-    assert budget["total_pairs"] == 342
+    assert budget["shot_pairs"] == 90
+    assert budget["total_pairs"] == 630
 
     mw_path = ROOT / "scripts" / "run_iqm_meyer_wallach.py"
     mw_spec = importlib.util.spec_from_file_location("run_iqm_meyer_wallach", mw_path)
@@ -942,5 +1040,6 @@ if __name__ == "__main__":
         test_mw_csv_artifact_helpers(tmp_path)
         test_mw_protocol_precision_helpers(tmp_path)
         test_kl_protocol_precision_helpers(tmp_path)
+        test_kl_qpu_sim_haar_analysis(tmp_path)
         test_write_protocol_and_analysis_artifacts(tmp_path)
     print("All smoke tests passed.")

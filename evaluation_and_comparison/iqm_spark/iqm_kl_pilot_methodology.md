@@ -73,7 +73,7 @@ pilot while keeping cheaper KL-specific choices elsewhere:
 
 1. **Bin sensitivity** is measured offline from Haar-random draws.
 2. **Shot stability** defaults to MW-aligned ranges: depths $\{2,4,6\}$, shot grid
-   $\{512,1024,2048,4096\}$, and `pilot_samples = 3` (MW uses `pilot_samples = 10`).
+   $\{512,1024,2048,4096,8192\}$ (max 8192), and `pilot_samples = 3` (MW uses `pilot_samples = 10`).
 3. **Sample precision** collects one larger run and analyses prefixes offline (MW runs
    a separate QPU sweep for every sample count in the grid).
 4. **Iteration drift** repeats the frozen protocol only after shots/samples/bins are fixed.
@@ -104,7 +104,7 @@ epsilon_B = 0.01
 Default tested grid:
 
 ```text
-B in {50, 75, 100, 150, 200}
+B in {50, 75, 100, 150, 200, 250, 300, 400}
 ```
 
 Artifacts:
@@ -118,7 +118,7 @@ Artifacts:
 
 - shot-pilot depths `{2, 4, 6}`,
 - `pilot_samples = 3` fidelity pairs,
-- shot grid `{512, 1024, 2048, 4096}` (same upper bound as MW).
+- shot grid `{512, 1024, 2048, 4096, 8192}` (max 8192 shots).
 
 Use `--pilot-samples 10` only if you need full MW parity on the shot stage (~16 h
 for shot pilot alone).
@@ -150,7 +150,7 @@ Artifacts:
 ## Stage 3: Sample Count (One Hardware Run + Offline Prefix Analysis)
 
 After shots are fixed, collect **one** hardware run per ansatz/depth with
-`max_samples` pairs (default 15). Because sampling is deterministic from the
+`max_samples` pairs (default 30). Because sampling is deterministic from the
 seed, the first $N$ pairs in that run are identical to a dedicated run with
 only $N$ pairs.
 
@@ -177,7 +177,7 @@ h_target = 0.03 KL units
 Default prefix grid:
 
 ```text
-N in {5, 8, 10, 12, 15}
+N in {5, 8, 10, 12, 15, 20, 25, 30}
 ```
 
 Artifacts:
@@ -244,12 +244,12 @@ Equivalent explicit invocation:
 ```bash
 python scripts/run_iqm_kl_pilot.py \
   --pilot-id kl_full_precision_pilot \
-  --shot-grid 512 1024 2048 4096 \
+  --shot-grid 512 1024 2048 4096 8192 \
   --shot-pilot-depth 2 4 6 \
   --pilot-samples 3 \
-  --sample-grid 5 8 10 12 15 \
-  --max-samples 15 \
-  --bin-grid 50 75 100 150 200 \
+  --sample-grid 5 8 10 12 15 20 25 30 \
+  --max-samples 30 \
+  --bin-grid 50 75 100 150 200 250 300 400 \
   --shot-tolerance 0.02 \
   --bin-tolerance 0.01 \
   --target-half-width 0.03 \
@@ -265,16 +265,16 @@ Let $P_{\mathrm{shot}} = |\text{shot grid}| \times 2 \times |\text{shot-pilot de
 | Stage | Default ($n_{\mathrm{pilot}}{=}3$) | With $n_{\mathrm{pilot}}{=}10$ |
 |-------|-----------------------------------|--------------------------------|
 | Bins | 0 (offline) | 0 |
-| Shot pilot | $4 \times 2 \times 3 \times 3 = 72$ pairs → **~4.8 h** | $4 \times 2 \times 3 \times 10 = 240$ pairs → **~16 h** |
-| Sample pilot | $2 \times 3 \times 15 = 90$ pairs → **~6.0 h** | same **~6.0 h** |
-| Iteration pilot ($K{=}2$, $N{=}15$) | $2 \times 2 \times 3 \times 15 = 180$ pairs → **~12 h** | same **~12 h** |
+| Shot pilot | $5 \times 2 \times 3 \times 3 = 90$ pairs → **~6.0 h** | $5 \times 2 \times 3 \times 10 = 300$ pairs → **~20 h** |
+| Sample pilot | $2 \times 3 \times 30 = 180$ pairs → **~12 h** | same **~12 h** |
+| Iteration pilot ($K{=}2$, $N{=}30$) | $2 \times 2 \times 3 \times 30 = 360$ pairs → **~24 h** | same **~24 h** |
 
-**Totals (@ 4 min/pair, $N_{\mathrm{chosen}}{=}15$, $K{=}2$):**
+**Totals (@ 4 min/pair, $N_{\mathrm{chosen}}{=}30$, $K{=}2$):**
 
 | Configuration | Total pairs (QPU) | Wall time |
 |---------------|-------------------|-----------|
-| **Default ($n_{\mathrm{pilot}}{=}3$)** | $72 + 90 + 180 = 342$ | **~23 h** |
-| **$n_{\mathrm{pilot}}{=}10$** | $240 + 90 + 180 = 510$ | **~34 h** |
+| **Default ($n_{\mathrm{pilot}}{=}3$)** | $90 + 180 + 360 = 630$ | **~42 h** |
+| **$n_{\mathrm{pilot}}{=}10$** | $300 + 180 + 360 = 840$ | **~56 h** |
 
 The runner prints this budget estimate at startup. Iteration pilot dominates because
 each iteration repeats the full ansatz $\times$ depth grid at up to `max_samples` pairs.
@@ -303,6 +303,60 @@ records:
 - `chosen_iterations`
 - tolerances and target half-widths
 - and the exact rule used for each choice.
+
+If any stage cannot meet its tolerance within the tested grid, the pilot **aborts**
+with `KlPilotFallbackError` instead of silently picking the largest grid value.
+Expand the relevant grid or relax the tolerance, then re-run.
+
+## Full Study (Pilot + Production + Offline Analysis)
+
+One command runs all three stages:
+
+```bash
+export IQM_TOKEN="..."
+./scripts/run_iqm_kl_full_study.sh
+```
+
+Defaults:
+
+- pilot id: `kl_pilot_paper`
+- production run id: `kl_full_study`
+- outputs:
+  - `evaluation_and_comparison/iqm_spark/iqm_kl_outputs/pilots/kl_pilot_paper/`
+  - `evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_full_study/`
+  - `evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_full_study/analysis/kl_qpu_sim_haar_comparison.csv`
+
+Resume after interruption:
+
+```bash
+SKIP_PILOT=1 ./scripts/run_iqm_kl_full_study.sh
+SKIP_PILOT=1 SKIP_PRODUCTION=1 ./scripts/run_iqm_kl_full_study.sh
+```
+
+Stage-by-stage equivalents:
+
+```bash
+# 1) Pilot (~42 h QPU)
+python scripts/run_iqm_kl_pilot.py --pilot-id kl_pilot_paper
+
+# 2) Production sweep (uses protocol from pilot)
+python scripts/run_iqm_kl_expressibility.py \
+  --protocol-json evaluation_and_comparison/iqm_spark/iqm_kl_outputs/pilots/kl_pilot_paper/kl_protocol_recommendation.json \
+  --run-id kl_full_study
+
+# 3) Offline KL(QPU/Sim/Haar) — no QPU time
+python scripts/analyze_iqm_kl_expressibility.py \
+  --run-dir evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_full_study \
+  --protocol-json evaluation_and_comparison/iqm_spark/iqm_kl_outputs/pilots/kl_pilot_paper/kl_protocol_recommendation.json
+```
+
+The offline analysis recomputes noiseless statevector fidelities from the same
+RNG seeds as the QPU tomography run and reports, per ansatz and depth:
+
+- `kl_qpu_haar` — $D_{\mathrm{KL}}(P_{\mathrm{QPU}}\|P_{\mathrm{Haar}})$
+- `kl_sim_haar` — $D_{\mathrm{KL}}(P_{\mathrm{Sim}}\|P_{\mathrm{Haar}})$
+- `kl_qpu_sim` — $D_{\mathrm{KL}}(P_{\mathrm{QPU}}\|P_{\mathrm{Sim}})$
+- `delta_kl_haar_qpu_minus_sim` and per-pair fidelity-gap statistics
 
 ## Mapping Back To The Notebook
 

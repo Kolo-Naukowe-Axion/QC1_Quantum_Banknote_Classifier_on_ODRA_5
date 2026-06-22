@@ -30,6 +30,10 @@ BasisName = Literal["Z", "X", "Y"]
 BASIS_ORDER: tuple[BasisName, ...] = ("Z", "X", "Y")
 
 
+class KlPilotFallbackError(RuntimeError):
+    """Raised when a KL pilot stage cannot meet its target within the tested grid."""
+
+
 # ---------------------------------------------------------------------------
 # Meyer–Wallach
 # ---------------------------------------------------------------------------
@@ -774,6 +778,227 @@ def kl_divergence(p: np.ndarray, q: np.ndarray, eps: float = 1e-12) -> float:
     return float(np.sum(p_s * np.log(p_s / q_s)))
 
 
+def kl_depth_seed(base_seed: int, depth: int, ansatz: str) -> int:
+    """Match the per-job RNG seed used in ``run_iqm_kl_sweep``."""
+    return int(base_seed) + 100 * int(depth) + (1 if str(ansatz) == "ansatz_simulator" else 0)
+
+
+def reproduce_pairwise_thetas(
+    seed: int,
+    n_params: int,
+    sample_index: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Reproduce the parameter draw for one KL fidelity-pair sample index."""
+    rng = np.random.default_rng(int(seed))
+    theta_a = np.empty(0, dtype=np.float64)
+    theta_b = np.empty(0, dtype=np.float64)
+    for _ in range(int(sample_index) + 1):
+        theta_a = rng.uniform(0.0, 2.0 * np.pi, int(n_params))
+        theta_b = rng.uniform(0.0, 2.0 * np.pi, int(n_params))
+    return theta_a, theta_b
+
+
+def statevector_pairwise_fidelity(
+    ansatz_fn: Callable[[int, int], QuantumCircuit],
+    n_qubits: int,
+    depth: int,
+    theta_a: np.ndarray,
+    theta_b: np.ndarray,
+) -> float:
+    """Noiseless |<psi(theta_a)|psi(theta_b)>|^2 for the logical ansatz."""
+    from qiskit.quantum_info import Statevector
+
+    qc_a = bind_ansatz(ansatz_fn, n_qubits, depth, theta_a)
+    qc_b = bind_ansatz(ansatz_fn, n_qubits, depth, theta_b)
+    psi_a = Statevector.from_instruction(qc_a).data
+    psi_b = Statevector.from_instruction(qc_b).data
+    return float(abs(np.vdot(psi_a, psi_b)) ** 2)
+
+
+def compute_kl_between_fidelity_samples(
+    f_compare: np.ndarray,
+    f_reference: np.ndarray,
+    *,
+    n_bins: int,
+    eps: float,
+) -> float:
+    """Discrete KL between two empirical fidelity laws on a shared bin grid."""
+    bins = np.linspace(0.0, 1.0, int(n_bins) + 1)
+    counts_cmp, _ = np.histogram(f_compare, bins=bins, density=False)
+    counts_ref, _ = np.histogram(f_reference, bins=bins, density=False)
+    p_cmp = counts_cmp.astype(np.float64)
+    p_ref = counts_ref.astype(np.float64)
+    if p_cmp.sum() == 0:
+        p_cmp = np.ones_like(p_cmp) / len(p_cmp)
+    else:
+        p_cmp /= p_cmp.sum()
+    if p_ref.sum() == 0:
+        p_ref = np.ones_like(p_ref) / len(p_ref)
+    else:
+        p_ref /= p_ref.sum()
+    return kl_divergence(p_cmp, p_ref, eps)
+
+
+def compute_statevector_fidelities_for_job(
+    ansatz_fn: Callable[[int, int], QuantumCircuit],
+    *,
+    n_qubits: int,
+    depth: int,
+    n_samples: int,
+    seed: int,
+) -> np.ndarray:
+    """Recompute all noiseless pairwise fidelities for one (ansatz, depth) job."""
+    n_params = len(ansatz_fn(n_qubits, depth).parameters)
+    values = np.empty(int(n_samples), dtype=np.float64)
+    for sample_index in range(int(n_samples)):
+        theta_a, theta_b = reproduce_pairwise_thetas(seed, n_params, sample_index)
+        values[sample_index] = statevector_pairwise_fidelity(
+            ansatz_fn,
+            n_qubits,
+            depth,
+            theta_a,
+            theta_b,
+        )
+    return values
+
+
+def resolve_kl_run_data_dir(run_root: Path) -> Path:
+    """Return the directory that contains per-sample KL fidelity CSV rows."""
+    run_root = Path(run_root)
+    if (run_root / "iqm_kl_fidelities.csv").is_file():
+        return run_root
+    iteration_dirs = sorted(
+        path for path in run_root.glob("iteration_*") if path.is_dir()
+    )
+    if iteration_dirs:
+        return iteration_dirs[-1]
+    raise FileNotFoundError(
+        f"No iqm_kl_fidelities.csv found under {run_root} or iteration_* subdirs"
+    )
+
+
+def analyze_kl_qpu_sim_haar_jobs(
+    run_dir: Path,
+    *,
+    ansatz_fns: dict[str, Callable[[int, int], QuantumCircuit]],
+    base_seed: int | None = None,
+    n_bins: int | None = None,
+    eps: float = 1e-12,
+):
+    """Build KL(QPU||Haar), KL(Sim||Haar), and KL(QPU||Sim) rows from a completed run."""
+    import pandas as pd
+
+    data_dir = resolve_kl_run_data_dir(run_dir)
+    summary_path = data_dir / "iqm_kl_results.csv"
+    fidelities_path = data_dir / "iqm_kl_fidelities.csv"
+    summary_df = read_csv_or_empty(summary_path)
+    if summary_df.empty:
+        raise ValueError(f"No KL summary rows found in {summary_path}")
+
+    rows: list[dict[str, object]] = []
+    for record in summary_df.to_dict(orient="records"):
+        ansatz = str(record["ansatz"])
+        depth = int(record["depth"])
+        if ansatz not in ansatz_fns:
+            raise ValueError(f"Unknown ansatz in summary: {ansatz}")
+        n_qubits = int(record["n_qubits"])
+        n_samples = int(record["n_samples"])
+        dim = 2 ** n_qubits
+        job_bins = int(n_bins if n_bins is not None else record["n_bins"])
+        job_eps = float(eps if eps is not None else record.get("eps", eps))
+        depth_seed = int(record["seed"])
+        if base_seed is not None:
+            expected_seed = kl_depth_seed(base_seed, depth, ansatz)
+            if depth_seed != expected_seed:
+                depth_seed = expected_seed
+
+        sample_rows = load_kl_job_fidelity_rows(fidelities_path, ansatz, depth)
+        if len(sample_rows) < n_samples:
+            raise ValueError(
+                f"Incomplete fidelity rows for {ansatz} depth={depth}: "
+                f"expected {n_samples}, got {len(sample_rows)}"
+            )
+        f_qpu = np.array(
+            [float(row["fidelity_physical"]) for row in sample_rows[:n_samples]],
+            dtype=np.float64,
+        )
+        f_sim = compute_statevector_fidelities_for_job(
+            ansatz_fns[ansatz],
+            n_qubits=n_qubits,
+            depth=depth,
+            n_samples=n_samples,
+            seed=depth_seed,
+        )
+
+        kl_qpu_haar, _, _, _ = compute_kl_for_fidelities(f_qpu, dim, job_bins, job_eps)
+        kl_sim_haar, _, _, _ = compute_kl_for_fidelities(f_sim, dim, job_bins, job_eps)
+        kl_qpu_sim = compute_kl_between_fidelity_samples(
+            f_qpu,
+            f_sim,
+            n_bins=job_bins,
+            eps=job_eps,
+        )
+        kl_sim_qpu = compute_kl_between_fidelity_samples(
+            f_sim,
+            f_qpu,
+            n_bins=job_bins,
+            eps=job_eps,
+        )
+
+        rows.append(
+            {
+                "ansatz": ansatz,
+                "depth": depth,
+                "n_qubits": n_qubits,
+                "n_samples": n_samples,
+                "shots": int(record["shots"]),
+                "seed": depth_seed,
+                "n_bins": job_bins,
+                "eps": job_eps,
+                "kl_qpu_haar": float(kl_qpu_haar),
+                "kl_sim_haar": float(kl_sim_haar),
+                "kl_qpu_sim": float(kl_qpu_sim),
+                "kl_sim_qpu": float(kl_sim_qpu),
+                "delta_kl_haar_qpu_minus_sim": float(kl_qpu_haar - kl_sim_haar),
+                "f_qpu_mean": float(np.mean(f_qpu)),
+                "f_sim_mean": float(np.mean(f_sim)),
+                "f_gap_mean_abs": float(np.mean(np.abs(f_qpu - f_sim))),
+                "f_gap_rmse": float(np.sqrt(np.mean((f_qpu - f_sim) ** 2))),
+                "data_dir": str(data_dir),
+            }
+        )
+
+    return pd.DataFrame(rows).sort_values(["ansatz", "depth"]).reset_index(drop=True)
+
+
+def write_kl_comparison_artifacts(
+    run_dir: Path,
+    comparison_df,
+    *,
+    protocol: dict[str, object] | None = None,
+) -> Path:
+    """Write offline KL(QPU/Sim/Haar) comparison tables next to a completed run."""
+    import pandas as pd
+
+    run_dir = Path(run_dir)
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir(parents=True, exist_ok=True)
+    if not isinstance(comparison_df, pd.DataFrame):
+        raise TypeError("comparison_df must be a pandas DataFrame")
+    csv_path = analysis_dir / "kl_qpu_sim_haar_comparison.csv"
+    comparison_df.to_csv(csv_path, index=False)
+
+    payload: dict[str, object] = {
+        "comparison_csv": str(csv_path),
+        "rows": comparison_df.to_dict(orient="records"),
+    }
+    if protocol is not None:
+        payload["protocol"] = protocol
+    json_path = analysis_dir / "kl_qpu_sim_haar_comparison.json"
+    json_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    return csv_path
+
+
 def bind_ansatz(
     ansatz_fn: Callable[[int, int], QuantumCircuit],
     n_qubits: int,
@@ -1096,7 +1321,7 @@ def run_iqm_kl_sweep(
         if (ansatz_name, depth) in completed:
             continue
 
-        depth_seed = seed + 100 * depth + (1 if ansatz_name == "ansatz_simulator" else 0)
+        depth_seed = kl_depth_seed(seed, depth, ansatz_name)
         saved_samples = completed_kl_samples(fidelities_path, ansatz_name, depth) if resume else set()
         existing_rows = (
             load_kl_job_fidelity_rows(fidelities_path, ansatz_name, depth) if resume else []
@@ -1259,11 +1484,21 @@ def choose_kl_shots(summary_df, *, tolerance: float) -> int:
         raise ValueError("KL pilot summary is empty; cannot choose shots")
     _, aggregate = compute_kl_shot_stability(summary_df)
     if aggregate.empty:
-        return int(max(summary_df["shots"]))
+        raise KlPilotFallbackError(
+            "KL shot pilot fallback: shot stability table is empty. "
+            "Cannot choose shots; check shot_pilot_summary.csv."
+        )
     for row in aggregate.sort_values("current_shot").itertuples(index=False):
         if float(row.max_abs_change_kl_physical) <= tolerance:
             return int(row.current_shot)
-    return int(max(summary_df["shots"]))
+    worst = aggregate.loc[aggregate["max_abs_change_kl_physical"].idxmax()]
+    raise KlPilotFallbackError(
+        f"KL shot pilot fallback: no shot count satisfies "
+        f"max |Delta KL_physical| <= {tolerance:.4g}. "
+        f"Worst step: {int(worst.previous_shot)} -> {int(worst.current_shot)} "
+        f"with max |Delta KL| = {float(worst.max_abs_change_kl_physical):.4g}. "
+        f"Expand shot_grid or relax shot_tolerance."
+    )
 
 
 def compute_kl_prefix_precision(
@@ -1370,7 +1605,15 @@ def choose_kl_samples(
     for row in aggregate.sort_values("n_samples").itertuples(index=False):
         if bool(row.all_meet_target):
             return int(row.n_samples)
-    return int(aggregate["max_required_n_samples"].max())
+    worst = aggregate.loc[aggregate["max_confidence_half_width"].idxmax()]
+    raise KlPilotFallbackError(
+        f"KL sample pilot fallback: no n_samples in grid satisfies "
+        f"bootstrap half-width <= {target_half_width:.4g}. "
+        f"Worst tested: n_samples={int(worst.n_samples)} with "
+        f"max half-width={float(worst.max_confidence_half_width):.4g} "
+        f"(required ~{int(worst.max_required_n_samples)} samples). "
+        f"Expand sample_grid/max_samples or relax target_half_width."
+    )
 
 
 def compute_kl_bin_sensitivity(
@@ -1431,16 +1674,23 @@ def choose_kl_bins(
     bin_aggregate,
     *,
     tolerance: float,
-    fallback: int | None = None,
 ) -> int:
     if bin_aggregate.empty:
-        if fallback is None:
-            raise ValueError("KL bin sensitivity table is empty; cannot choose n_bins")
-        return int(fallback)
+        raise KlPilotFallbackError(
+            "KL bin pilot fallback: bin sensitivity table is empty. "
+            "Cannot choose n_bins; expand bin_grid or increase bin_trials."
+        )
     for row in bin_aggregate.sort_values("n_bins").itertuples(index=False):
         if float(row.max_abs_bias) <= tolerance:
             return int(row.n_bins)
-    return int(bin_aggregate["n_bins"].max())
+    worst = bin_aggregate.loc[bin_aggregate["max_abs_bias"].idxmax()]
+    raise KlPilotFallbackError(
+        f"KL bin pilot fallback: no n_bins in grid satisfies "
+        f"max_abs_bias <= {tolerance:.4g}. "
+        f"Best tested: n_bins={int(worst.n_bins)} with "
+        f"max_abs_bias={float(worst.max_abs_bias):.4g}. "
+        f"Expand bin_grid, relax bin_tolerance, or increase reference_bins."
+    )
 
 
 def compute_kl_iteration_stability(summary_df):
@@ -1535,7 +1785,23 @@ def choose_kl_iterations(
             continue
         if bool(aggregate.iloc[0]["all_meet_target"]):
             return int(iterations)
-    return int(max_iterations)
+    _, aggregate = compute_kl_iteration_precision(
+        summary_df,
+        target_half_width=target_half_width,
+    )
+    if aggregate.empty:
+        raise KlPilotFallbackError(
+            "KL iteration pilot fallback: iteration precision table is empty. "
+            "Cannot choose iterations; check iteration_summary.csv."
+        )
+    worst_hw = float(aggregate.iloc[0]["max_iteration_half_width_95"])
+    raise KlPilotFallbackError(
+        f"KL iteration pilot fallback: no iteration count in "
+        f"[{min_iterations}, {max_iterations}] satisfies "
+        f"iteration half-width <= {target_half_width:.4g}. "
+        f"At K={max_iterations}: max half-width={worst_hw:.4g}. "
+        f"Increase max_iterations or relax target_iteration_half_width."
+    )
 
 
 def kl_iteration_target_met(
