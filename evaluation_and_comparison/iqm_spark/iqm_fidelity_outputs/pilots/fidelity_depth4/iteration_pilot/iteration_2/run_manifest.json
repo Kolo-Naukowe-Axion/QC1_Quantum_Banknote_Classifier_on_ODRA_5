@@ -1,0 +1,33 @@
+{
+  "ansatzes": [
+    "ansatz_odra",
+    "ansatz_simulator"
+  ],
+  "backend": "<iqm.qiskit_iqm.iqm_provider.IQMBackend object at 0x15b03ed50>",
+  "checkpoint_epoch": 30,
+  "circuits_per_input": 243,
+  "created_utc": "2026-06-22T12:47:47.736712+00:00",
+  "depths": [
+    4
+  ],
+  "fidelity_definition": "F = <psi_ideal | rho_hardware | psi_ideal> from full 3^n Pauli tomography",
+  "fold": 1,
+  "headline_metric": "f_phys_avg",
+  "iqm_url": "https://odra5.e-science.pl/",
+  "iteration": 2,
+  "max_circuits_per_job": 275,
+  "method": "hardware_state_tomography_fidelity",
+  "n_qubits": 5,
+  "n_samples": 10,
+  "optimization_level": 1,
+  "outputs": [
+    "iqm_fidelity_results.csv",
+    "iqm_fidelity_scores.csv"
+  ],
+  "pilot_id": "fidelity_depth4",
+  "pilot_stage": "iteration_pilot",
+  "seed": 42,
+  "shots": 1024,
+  "source_script": "scripts/pilot_state_fidelity.py",
+  "total_tomography_circuits": 4860
+}

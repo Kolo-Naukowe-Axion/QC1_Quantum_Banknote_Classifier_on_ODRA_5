@@ -1,0 +1,3 @@
+ansatz,depth,shots,n_samples,iterations,iteration_mean_f_phys_avg,iteration_std_f_phys_avg,iteration_sem_f_phys_avg,iteration_half_width_95,iteration_min_f_phys_avg,iteration_max_f_phys_avg,target_half_width,meets_target
+ansatz_odra,2,1024,10,2,0.6994176486608341,0.011053358438720632,0.007815904706904908,0.09930888520593376,0.6916017439539293,0.7072335533677391,0.01,False
+ansatz_simulator,2,1024,10,2,0.5495042659126128,0.002246539232205232,0.0015885431252939395,0.020184028949984792,0.5479157227873189,0.5510928090379068,0.01,False

@@ -13,18 +13,23 @@ import numpy as np
 from qiskit import QuantumCircuit
 
 from qbanknote.ansatzes import trimmed_reverse_q0_param_count
-from qbanknote.evaluation import append_csv_row, read_csv_or_empty
+from qbanknote.data import load_fold_arrays
+from qbanknote.evaluation import append_csv_row, ansatz_key, read_csv_or_empty
 from qbanknote.iqm import run_circuits_on_backend, transpile_for_backend
+from qbanknote.paths import find_project_root
 from qbanknote.progress import report_progress
 from qbanknote.tomography import (
     add_tomography_rotations,
     all_basis_settings,
+    build_bound_circuit,
     expectation_from_counts,
     hardware_overlap,
     project_to_physical,
     reconstruct_rho,
+    state_fidelity_pure,
     tomography_density_matrices,
 )
+from qbanknote.weights import load_trained_weights, metric_weight_path
 
 BasisName = Literal["Z", "X", "Y"]
 BASIS_ORDER: tuple[BasisName, ...] = ("Z", "X", "Y")
@@ -697,15 +702,25 @@ def iteration_target_met(
     target_half_width: float,
     iterations: int,
 ) -> bool:
-    """Return True if completed iterations satisfy the drift half-width target."""
+    """Return True if completed iterations satisfy the drift half-width target.
+
+    Works for both Meyer-Wallach summaries (``mw_avg`` column) and state-fidelity
+    summaries (``f_phys_avg`` column).
+    """
     subset = summary_df[summary_df["iteration"] <= iterations]
     present = sorted(int(v) for v in subset["iteration"].dropna().unique())
     if present != list(range(1, iterations + 1)):
         return False
-    _, aggregate = compute_mw_iteration_precision(
-        subset,
-        target_half_width=target_half_width,
-    )
+    if "mw_avg" not in subset.columns and "f_phys_avg" in subset.columns:
+        _, aggregate = compute_fidelity_iteration_precision(
+            subset,
+            target_half_width=target_half_width,
+        )
+    else:
+        _, aggregate = compute_mw_iteration_precision(
+            subset,
+            target_half_width=target_half_width,
+        )
     if aggregate.empty:
         return False
     return bool(aggregate.iloc[0]["all_meet_target"])
@@ -1862,6 +1877,637 @@ def estimate_wall_time_minutes(
 ) -> float:
     n_pairs = n_ansatzes * n_depths * n_samples
     return n_pairs * 2.0 * minutes_per_state
+
+
+# ---------------------------------------------------------------------------
+# State-tomography fidelity pilot
+#
+# Fidelity here is the hardware state-tomography fidelity
+#     F = <psi_ideal | rho_hardware | psi_ideal>
+# where psi_ideal is the noiseless statevector of the bound circuit
+# (feature map + trained ansatz) and rho_hardware is reconstructed from a full
+# 3^n Pauli tomography sweep, then projected to the physical set (F_phys).
+# This mirrors the Meyer-Wallach pilot, but the per-setting metric is the mean
+# physical-projection fidelity over n_samples frozen test inputs evaluated with
+# the trained weights theta*.
+# ---------------------------------------------------------------------------
+
+
+FIDELITY_SUMMARY_COLUMNS = [
+    "ansatz",
+    "depth",
+    "n_qubits",
+    "n_params",
+    "n_samples",
+    "shots",
+    "seed",
+    "fold",
+    "f_phys_avg",
+    "f_phys_std",
+    "f_phys_sem",
+    "f_phys_min",
+    "f_phys_max",
+    "f_lin_avg",
+    "f_lin_std",
+]
+
+
+def fidelity_shot_noise_sd_bound(n_qubits: int, shots: int) -> float:
+    """Delta-method bound for shot noise in one state-tomography fidelity.
+
+    For a pure target state, ``sum_{P != I} <psi|P|psi>^2 = 2^n - 1`` and each
+    Pauli expectation estimated from ``shots`` samples has variance ``<= 1/shots``.
+    With ``F = 2^{-n} sum_P <P> <psi|P|psi>`` this yields
+    ``SD(F) <= sqrt(2^n - 1) / (2^n * sqrt(shots))``.
+    """
+    if n_qubits <= 0 or shots <= 0:
+        raise ValueError("n_qubits and shots must be positive")
+    dim = 2.0**n_qubits
+    return float(math.sqrt(dim - 1.0) / (dim * math.sqrt(shots)))
+
+
+def fidelity_mean_shot_noise_bound(n_qubits: int, shots: int, n_samples: int) -> float:
+    """Shot-noise contribution after averaging fidelities over test inputs."""
+    if n_samples <= 0:
+        raise ValueError("n_samples must be positive")
+    return float(fidelity_shot_noise_sd_bound(n_qubits, shots) / math.sqrt(n_samples))
+
+
+def fidelity_confidence_half_width(std: float, n_samples: int, z_value: float = 1.96) -> float:
+    return mw_confidence_half_width(std, n_samples, z_value)
+
+
+def required_fidelity_samples(std: float, target_half_width: float, z_value: float = 1.96) -> int:
+    return required_mw_samples(std, target_half_width, z_value)
+
+
+def sample_fidelity_one(
+    backend,
+    ansatz_circuit: QuantumCircuit,
+    weight_values: np.ndarray,
+    x_value: np.ndarray,
+    *,
+    n_qubits: int,
+    shots: int,
+    optimization_level: int,
+    seed_transpiler: int | None,
+    max_circuits_per_job: int,
+    label: str = "",
+) -> dict[str, object]:
+    """Run full hardware tomography for one (trained weights, test input) pair."""
+    from qiskit.quantum_info import Statevector
+
+    bound = build_bound_circuit(ansatz_circuit, x_value, weight_values, n_qubits)
+    psi_ideal = Statevector.from_instruction(bound).data
+    rho_lin, rho_phys, diagnostics = tomography_density_matrices(
+        bound,
+        backend,
+        n_qubits=n_qubits,
+        shots=shots,
+        optimization_level=optimization_level,
+        seed_transpiler=seed_transpiler,
+        max_circuits_per_job=max_circuits_per_job,
+        label=label,
+    )
+    return {
+        "fidelity_linear": state_fidelity_pure(psi_ideal, rho_lin),
+        "fidelity_physical": state_fidelity_pure(psi_ideal, rho_phys),
+        "trace_linear": diagnostics["trace_linear"],
+        "trace_physical": diagnostics["trace_physical"],
+        "purity_linear": diagnostics["purity_linear"],
+        "purity_physical": diagnostics["purity_physical"],
+    }
+
+
+def aggregate_fidelity_from_sample_rows(
+    sample_rows: list[dict[str, object]],
+    *,
+    n_qubits: int,
+    n_params: int,
+) -> dict[str, object]:
+    """Aggregate per-input fidelity rows into summary statistics."""
+    f_phys = np.array([float(row["fidelity_physical"]) for row in sample_rows], dtype=float)
+    f_lin = np.array([float(row["fidelity_linear"]) for row in sample_rows], dtype=float)
+    n_samples = len(sample_rows)
+    return {
+        "n_qubits": n_qubits,
+        "n_params": n_params,
+        "n_samples": n_samples,
+        "f_phys_avg": float(np.mean(f_phys)),
+        "f_phys_std": float(np.std(f_phys)),
+        "f_phys_sem": float(np.std(f_phys) / math.sqrt(n_samples)),
+        "f_phys_min": float(np.min(f_phys)),
+        "f_phys_max": float(np.max(f_phys)),
+        "f_lin_avg": float(np.mean(f_lin)),
+        "f_lin_std": float(np.std(f_lin)),
+    }
+
+
+def fidelity_summary_row(
+    *,
+    ansatz: str,
+    depth: int,
+    shots: int,
+    seed: int,
+    fold: int,
+    result: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "ansatz": ansatz,
+        "depth": depth,
+        "n_qubits": result["n_qubits"],
+        "n_params": result["n_params"],
+        "n_samples": result["n_samples"],
+        "shots": shots,
+        "seed": seed,
+        "fold": fold,
+        "f_phys_avg": result["f_phys_avg"],
+        "f_phys_std": result["f_phys_std"],
+        "f_phys_sem": result["f_phys_sem"],
+        "f_phys_min": result["f_phys_min"],
+        "f_phys_max": result["f_phys_max"],
+        "f_lin_avg": result["f_lin_avg"],
+        "f_lin_std": result["f_lin_std"],
+    }
+
+
+def fidelity_job_key(ansatz: str, depth: int) -> tuple[str, int]:
+    return str(ansatz), int(depth)
+
+
+def completed_fidelity_jobs(summary_path: Path) -> set[tuple[str, int]]:
+    frame = read_csv_or_empty(summary_path)
+    if frame.empty:
+        return set()
+    return {
+        fidelity_job_key(str(row.ansatz), int(row.depth))
+        for row in frame.itertuples(index=False)
+    }
+
+
+def completed_fidelity_samples(scores_path: Path, ansatz: str, depth: int) -> set[int]:
+    """Return sample indices already stored for one (ansatz, depth) job."""
+    frame = read_csv_or_empty(scores_path)
+    if frame.empty or "sample_index" not in frame.columns:
+        return set()
+    subset = frame[
+        (frame["ansatz"].astype(str) == str(ansatz))
+        & (frame["depth"].astype(int) == int(depth))
+    ]
+    if subset.empty:
+        return set()
+    return {int(value) for value in subset["sample_index"]}
+
+
+def load_fidelity_job_rows(
+    scores_path: Path,
+    ansatz: str,
+    depth: int,
+) -> list[dict[str, object]]:
+    """Load per-input fidelity rows for one (ansatz, depth) job, sorted by index."""
+    frame = read_csv_or_empty(scores_path)
+    if frame.empty or "sample_index" not in frame.columns:
+        return []
+    subset = frame[
+        (frame["ansatz"].astype(str) == str(ansatz))
+        & (frame["depth"].astype(int) == int(depth))
+    ].sort_values("sample_index")
+    rows: list[dict[str, object]] = []
+    for record in subset.to_dict(orient="records"):
+        row = {key: record[key] for key in record if key not in ("ansatz", "depth")}
+        row["sample_index"] = int(row["sample_index"])
+        rows.append(row)
+    return rows
+
+
+def fidelity_score_row_to_csv(
+    ansatz: str,
+    depth: int,
+    sample_index: int,
+    row: dict[str, object],
+) -> dict[str, object]:
+    return {"ansatz": ansatz, "depth": depth, "sample_index": int(sample_index), **row}
+
+
+def read_fidelity_summary(
+    run_dir: Path,
+    *,
+    stage: str | None = None,
+    iteration: int | None = None,
+):
+    frame = read_csv_or_empty(Path(run_dir) / "iqm_fidelity_results.csv")
+    if frame.empty:
+        return frame
+    frame = frame.copy()
+    frame["run_dir"] = str(Path(run_dir))
+    frame["run_id"] = Path(run_dir).name
+    if stage is not None:
+        frame["stage"] = stage
+    if iteration is not None:
+        frame["iteration"] = int(iteration)
+    return frame
+
+
+def run_iqm_fidelity_sweep(
+    backend,
+    *,
+    ansatz_fns: dict[str, Callable[[int, int], QuantumCircuit]],
+    ansatz_names: list[str],
+    depths: list[int],
+    n_qubits: int,
+    n_samples: int,
+    seed: int,
+    shots: int,
+    optimization_level: int,
+    seed_transpiler: int | None,
+    max_circuits_per_job: int,
+    output_dir: Path,
+    fold: int = 1,
+    epoch: int = 30,
+    root: Path | None = None,
+    resume: bool = True,
+    verbose: bool = False,
+    progress_callback: Callable[[str, int, int], None] | None = None,
+    manifest_extra: dict[str, object] | None = None,
+) -> Path:
+    """Run a state-tomography fidelity hardware sweep with resumable CSV artifacts.
+
+    For each (ansatz, depth) the frozen trained weights ``theta*`` are loaded from
+    the matching cross-validation checkpoint and evaluated on the first
+    ``n_samples`` inputs of the fold's test split.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = output_dir / "iqm_fidelity_results.csv"
+    scores_path = output_dir / "iqm_fidelity_scores.csv"
+    manifest_path = output_dir / "run_manifest.json"
+
+    project_root = find_project_root(root)
+    X_test, _ = load_fold_arrays(fold, split="test", root=project_root)
+    if len(X_test) < n_samples:
+        raise ValueError(
+            f"Fold {fold} test split has {len(X_test)} inputs, fewer than "
+            f"requested n_samples={n_samples}"
+        )
+    inputs = np.asarray(X_test[:n_samples], dtype=float)
+
+    completed = completed_fidelity_jobs(summary_path) if resume else set()
+    jobs = [(ansatz_name, depth) for depth in depths for ansatz_name in ansatz_names]
+    total_jobs = len(jobs)
+    done_jobs = sum(1 for job in jobs if job in completed)
+
+    for ansatz_name, depth in jobs:
+        if (ansatz_name, depth) in completed:
+            continue
+
+        ansatz_circuit = ansatz_fns[ansatz_name](n_qubits, depth)
+        n_params = len(ansatz_circuit.parameters)
+        weight_file = metric_weight_path(
+            depth,
+            ansatz_key(ansatz_name),
+            fold,
+            epoch=epoch,
+            root=project_root,
+        )
+        if not weight_file.exists():
+            raise FileNotFoundError(
+                f"Trained weights not found for {ansatz_name} depth={depth} "
+                f"fold={fold} epoch={epoch}: {weight_file}"
+            )
+        weight_values = load_trained_weights(weight_file, ansatz_circuit)
+        depth_seed = seed + depth * 1000 + (1 if ansatz_name == "ansatz_simulator" else 0)
+
+        saved_samples = (
+            completed_fidelity_samples(scores_path, ansatz_name, depth) if resume else set()
+        )
+        existing_rows = (
+            load_fidelity_job_rows(scores_path, ansatz_name, depth) if resume else []
+        )
+
+        if saved_samples and verbose:
+            print(
+                f"Resuming {ansatz_name} depth={depth}: "
+                f"{len(saved_samples)}/{n_samples} inputs on disk",
+                flush=True,
+            )
+        elif verbose:
+            print(f"Running {ansatz_name} depth={depth}", flush=True)
+
+        new_rows: list[dict[str, object]] = []
+        for sample_index in range(n_samples):
+            if sample_index in saved_samples:
+                continue
+            row = sample_fidelity_one(
+                backend,
+                ansatz_circuit,
+                weight_values,
+                inputs[sample_index],
+                n_qubits=n_qubits,
+                shots=shots,
+                optimization_level=optimization_level,
+                seed_transpiler=seed_transpiler,
+                max_circuits_per_job=max_circuits_per_job,
+                label=f"{ansatz_name} depth={depth} input {sample_index + 1}/{n_samples}",
+            )
+            row["sample_index"] = sample_index
+            append_csv_row(
+                scores_path,
+                fidelity_score_row_to_csv(ansatz_name, depth, sample_index, row),
+            )
+            new_rows.append(row)
+
+        sample_rows = existing_rows + new_rows
+        sample_rows.sort(key=lambda item: int(item["sample_index"]))
+        if len(sample_rows) < n_samples:
+            raise RuntimeError(
+                f"Incomplete fidelity job {ansatz_name} depth={depth}: "
+                f"expected {n_samples} inputs, got {len(sample_rows)}"
+            )
+
+        result = aggregate_fidelity_from_sample_rows(
+            sample_rows[:n_samples],
+            n_qubits=n_qubits,
+            n_params=n_params,
+        )
+        append_csv_row(
+            summary_path,
+            fidelity_summary_row(
+                ansatz=ansatz_name,
+                depth=depth,
+                shots=shots,
+                seed=depth_seed,
+                fold=fold,
+                result=result,
+            ),
+        )
+
+        done_jobs += 1
+        report_progress(progress_callback, "fidelity_jobs", done_jobs, total_jobs)
+
+    manifest = {
+        "source_script": "scripts/pilot_state_fidelity.py",
+        "method": "hardware_state_tomography_fidelity",
+        "fidelity_definition": (
+            "F = <psi_ideal | rho_hardware | psi_ideal> from full 3^n Pauli tomography"
+        ),
+        "headline_metric": "f_phys_avg",
+        "n_qubits": n_qubits,
+        "depths": list(depths),
+        "ansatzes": list(ansatz_names),
+        "n_samples": n_samples,
+        "shots": shots,
+        "seed": seed,
+        "fold": fold,
+        "checkpoint_epoch": epoch,
+        "optimization_level": optimization_level,
+        "max_circuits_per_job": max_circuits_per_job,
+        "circuits_per_input": 3**n_qubits,
+        "total_tomography_circuits": len(ansatz_names) * len(depths) * n_samples * (3**n_qubits),
+        "outputs": ["iqm_fidelity_results.csv", "iqm_fidelity_scores.csv"],
+    }
+    if manifest_extra:
+        manifest.update(manifest_extra)
+    write_mw_manifest(manifest_path, backend=backend, manifest=manifest)
+    return output_dir
+
+
+def compute_fidelity_shot_stability(summary_df) -> tuple[object, object]:
+    """Compare consecutive shot budgets for each ansatz/depth/sample setting."""
+    if summary_df.empty or "shots" not in summary_df.columns:
+        return summary_df.iloc[0:0].copy(), summary_df.iloc[0:0].copy()
+
+    rows = []
+    group_cols = ["ansatz", "depth", "n_samples"]
+    for keys, group in summary_df.groupby(group_cols, dropna=False):
+        ansatz, depth, n_samples = keys
+        ordered_shots = sorted(int(value) for value in group["shots"].dropna().unique())
+        for previous_shot, current_shot in zip(ordered_shots[:-1], ordered_shots[1:]):
+            prev = group[group["shots"] == previous_shot]
+            curr = group[group["shots"] == current_shot]
+            if prev.empty or curr.empty:
+                continue
+            prev_row = prev.iloc[0]
+            curr_row = curr.iloc[0]
+            rows.append(
+                {
+                    "ansatz": ansatz,
+                    "depth": int(depth),
+                    "n_samples": int(n_samples),
+                    "previous_shot": previous_shot,
+                    "current_shot": current_shot,
+                    "f_phys_avg_previous": float(prev_row["f_phys_avg"]),
+                    "f_phys_avg_current": float(curr_row["f_phys_avg"]),
+                    "abs_change_f_phys_avg": abs(
+                        float(curr_row["f_phys_avg"]) - float(prev_row["f_phys_avg"])
+                    ),
+                }
+            )
+
+    import pandas as pd
+
+    detailed = pd.DataFrame(rows)
+    if detailed.empty:
+        return detailed, pd.DataFrame()
+
+    aggregate_rows = []
+    for keys, group in detailed.groupby(["previous_shot", "current_shot"], dropna=False):
+        previous_shot, current_shot = keys
+        aggregate_rows.append(
+            {
+                "previous_shot": int(previous_shot),
+                "current_shot": int(current_shot),
+                "mean_abs_change_f_phys_avg": float(group["abs_change_f_phys_avg"].mean()),
+                "max_abs_change_f_phys_avg": float(group["abs_change_f_phys_avg"].max()),
+            }
+        )
+    return detailed, pd.DataFrame(aggregate_rows)
+
+
+def choose_fidelity_shots(summary_df, *, tolerance: float) -> int:
+    if tolerance <= 0:
+        raise ValueError("tolerance must be positive")
+    if summary_df.empty:
+        raise ValueError("fidelity pilot summary is empty; cannot choose shots")
+    _, aggregate = compute_fidelity_shot_stability(summary_df)
+    if aggregate.empty:
+        return int(max(summary_df["shots"]))
+    for row in aggregate.sort_values("current_shot").itertuples(index=False):
+        if float(row.max_abs_change_f_phys_avg) <= tolerance:
+            return int(row.current_shot)
+    return int(max(summary_df["shots"]))
+
+
+def compute_fidelity_sample_precision(
+    summary_df,
+    *,
+    target_half_width: float,
+    z_value: float = 1.96,
+):
+    if summary_df.empty:
+        return summary_df.iloc[0:0].copy(), summary_df.iloc[0:0].copy()
+    rows = []
+    for row in summary_df.itertuples(index=False):
+        half_width = fidelity_confidence_half_width(
+            float(row.f_phys_std), int(row.n_samples), z_value
+        )
+        rows.append(
+            {
+                "ansatz": row.ansatz,
+                "depth": int(row.depth),
+                "shots": int(row.shots),
+                "n_samples": int(row.n_samples),
+                "f_phys_std": float(row.f_phys_std),
+                "f_phys_sem": float(row.f_phys_sem),
+                "confidence_half_width": half_width,
+                "target_half_width": float(target_half_width),
+                "meets_target": bool(half_width <= target_half_width),
+                "required_n_samples": required_fidelity_samples(
+                    float(row.f_phys_std),
+                    target_half_width,
+                    z_value,
+                ),
+            }
+        )
+
+    import pandas as pd
+
+    detailed = pd.DataFrame(rows)
+    aggregate_rows = []
+    for n_samples, group in detailed.groupby("n_samples", dropna=False):
+        aggregate_rows.append(
+            {
+                "n_samples": int(n_samples),
+                "max_confidence_half_width": float(group["confidence_half_width"].max()),
+                "max_required_n_samples": int(group["required_n_samples"].max()),
+                "all_meet_target": bool(group["meets_target"].all()),
+            }
+        )
+    return detailed, pd.DataFrame(aggregate_rows).sort_values("n_samples")
+
+
+def choose_fidelity_samples(summary_df, *, target_half_width: float, z_value: float = 1.96) -> int:
+    if summary_df.empty:
+        raise ValueError("fidelity sample pilot summary is empty; cannot choose n_samples")
+    _, aggregate = compute_fidelity_sample_precision(
+        summary_df,
+        target_half_width=target_half_width,
+        z_value=z_value,
+    )
+    for row in aggregate.sort_values("n_samples").itertuples(index=False):
+        if bool(row.all_meet_target):
+            return int(row.n_samples)
+    return int(aggregate["max_required_n_samples"].max())
+
+
+def compute_fidelity_iteration_stability(summary_df):
+    if summary_df.empty or "iteration" not in summary_df.columns:
+        return summary_df.iloc[0:0].copy()
+
+    import pandas as pd
+
+    rows = []
+    for keys, group in summary_df.groupby(
+        ["ansatz", "depth", "shots", "n_samples"], dropna=False
+    ):
+        ansatz, depth, shots, n_samples = keys
+        n_iter = int(group["iteration"].nunique())
+        iter_std = float(group["f_phys_avg"].std(ddof=1)) if n_iter > 1 else 0.0
+        iter_sem = iter_std / math.sqrt(n_iter) if n_iter > 0 else 0.0
+        half_width = (
+            mw_iteration_half_width(iter_std, n_iter) if n_iter >= 2 else float("nan")
+        )
+        rows.append(
+            {
+                "ansatz": ansatz,
+                "depth": int(depth),
+                "shots": int(shots),
+                "n_samples": int(n_samples),
+                "iterations": n_iter,
+                "iteration_mean_f_phys_avg": float(group["f_phys_avg"].mean()),
+                "iteration_std_f_phys_avg": iter_std,
+                "iteration_sem_f_phys_avg": iter_sem,
+                "iteration_half_width_95": half_width,
+                "iteration_min_f_phys_avg": float(group["f_phys_avg"].min()),
+                "iteration_max_f_phys_avg": float(group["f_phys_avg"].max()),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def compute_fidelity_iteration_precision(
+    summary_df,
+    *,
+    target_half_width: float,
+) -> tuple[object, object]:
+    import pandas as pd
+
+    stability = compute_fidelity_iteration_stability(summary_df)
+    if stability.empty:
+        return stability, pd.DataFrame()
+
+    detailed = stability.copy()
+    detailed["target_half_width"] = float(target_half_width)
+    detailed["meets_target"] = detailed["iteration_half_width_95"] <= float(target_half_width)
+
+    aggregate_rows = []
+    if not detailed["iteration_half_width_95"].isna().all():
+        aggregate_rows.append(
+            {
+                "iterations": int(detailed["iterations"].max()),
+                "max_iteration_half_width_95": float(detailed["iteration_half_width_95"].max()),
+                "mean_iteration_half_width_95": float(detailed["iteration_half_width_95"].mean()),
+                "target_half_width": float(target_half_width),
+                "all_meet_target": bool(detailed["meets_target"].all()),
+            }
+        )
+    return detailed, pd.DataFrame(aggregate_rows)
+
+
+def choose_fidelity_iterations(
+    summary_df,
+    *,
+    target_half_width: float,
+    min_iterations: int = 3,
+    max_iterations: int = 5,
+) -> int:
+    if min_iterations < 2:
+        raise ValueError("min_iterations must be at least 2")
+    if max_iterations < min_iterations:
+        raise ValueError("max_iterations must be >= min_iterations")
+    if summary_df.empty:
+        raise ValueError("fidelity iteration pilot summary is empty; cannot choose iterations")
+
+    for iterations in range(min_iterations, max_iterations + 1):
+        subset = summary_df[summary_df["iteration"] <= iterations]
+        present = sorted(int(value) for value in subset["iteration"].dropna().unique())
+        if present != list(range(1, iterations + 1)):
+            continue
+        _, aggregate = compute_fidelity_iteration_precision(
+            subset,
+            target_half_width=target_half_width,
+        )
+        if aggregate.empty:
+            continue
+        if bool(aggregate.iloc[0]["all_meet_target"]):
+            return int(iterations)
+    return int(max_iterations)
+
+
+def write_fidelity_protocol_artifacts(
+    run_dir: Path,
+    *,
+    recommendation: dict[str, object],
+    frames: dict[str, object],
+) -> Path:
+    import pandas as pd
+
+    run_dir = Path(run_dir)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    for name, frame in frames.items():
+        if isinstance(frame, pd.DataFrame) and not frame.empty:
+            frame.to_csv(run_dir / f"{name}.csv", index=False)
+    path = run_dir / "fidelity_protocol_recommendation.json"
+    path.write_text(json.dumps(recommendation, indent=2, sort_keys=True) + "\n")
+    return path
 
 
 # ---------------------------------------------------------------------------

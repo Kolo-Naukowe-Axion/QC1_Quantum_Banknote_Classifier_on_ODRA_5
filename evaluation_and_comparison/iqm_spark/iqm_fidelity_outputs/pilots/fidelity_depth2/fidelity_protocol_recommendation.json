@@ -1,0 +1,41 @@
+{
+  "ansatzes": [
+    "ansatz_odra",
+    "ansatz_simulator"
+  ],
+  "chosen_iterations": 2,
+  "chosen_n_samples": 10,
+  "chosen_shots": 1024,
+  "confidence_z": 1.96,
+  "depths": [
+    2
+  ],
+  "drift_only": false,
+  "iqm_url": "https://odra5.e-science.pl/",
+  "iteration_target_met": false,
+  "iterations_run": 2,
+  "max_iterations": 2,
+  "mean_shot_noise_bound_at_chosen_samples": 0.0017194157091463874,
+  "methodology": {
+    "iteration_rule": "Repeat frozen protocol with identical seed; choose smallest K >= min_iterations such that max 95% iteration half-width <= target_iteration_half_width, otherwise use max_iterations.",
+    "sample_rule": "Choose smallest n_samples (test inputs) whose worst 95% half-width is <= target_half_width; otherwise use required_n_samples.",
+    "shot_rule": "Choose smallest tomography shot count (per Pauli basis) whose max consecutive physical-projection fidelity mean change is <= shot_tolerance."
+  },
+  "min_iterations": 2,
+  "output_root": "/Users/karinaleskiewicz/Desktop/fidelity/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_fidelity_outputs/pilots/fidelity_depth2",
+  "pilot_id": "fidelity_depth2",
+  "pilot_samples": 10,
+  "sample_grid": [
+    10,
+    20
+  ],
+  "shot_grid": [
+    512,
+    1024,
+    2048
+  ],
+  "shot_tolerance": 0.02,
+  "single_sample_shot_noise_sd_bound": 0.005437269885576193,
+  "target_half_width": 0.03,
+  "target_iteration_half_width": 0.01
+}

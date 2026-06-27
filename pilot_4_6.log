@@ -1,0 +1,9 @@
+Traceback (most recent call last):
+  File "/Users/karinaleskiewicz/Desktop/fidelity/QC1_Quantum_Banknote_Classifier_on_ODRA_5/scripts/pilot_state_fidelity.py", line 470, in <module>
+    main()
+  File "/Users/karinaleskiewicz/Desktop/fidelity/QC1_Quantum_Banknote_Classifier_on_ODRA_5/scripts/pilot_state_fidelity.py", line 267, in main
+    backend = connect_to_iqm_backend(args.iqm_url, token=args.iqm_token)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/karinaleskiewicz/Desktop/fidelity/QC1_Quantum_Banknote_Classifier_on_ODRA_5/src/qbanknote/iqm.py", line 312, in connect_to_iqm_backend
+    raise ValueError("Set either token argument or IQM_TOKEN, not both")
+ValueError: Set either token argument or IQM_TOKEN, not both

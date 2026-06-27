@@ -29,6 +29,9 @@ from qbanknote.metrics import (  # noqa: E402
     KlPilotFallbackError,
     aggregate_kl_from_sample_rows,
     analyze_kl_qpu_sim_haar_jobs,
+    choose_fidelity_iterations,
+    choose_fidelity_samples,
+    choose_fidelity_shots,
     choose_kl_bins,
     choose_kl_iterations,
     choose_kl_samples,
@@ -36,9 +39,13 @@ from qbanknote.metrics import (  # noqa: E402
     choose_mw_iterations,
     choose_mw_samples,
     choose_mw_shots,
+    completed_fidelity_jobs,
     completed_kl_jobs,
     completed_kl_samples,
     completed_mw_jobs,
+    compute_fidelity_iteration_precision,
+    compute_fidelity_sample_precision,
+    compute_fidelity_shot_stability,
     compute_kl_bin_sensitivity,
     compute_kl_between_fidelity_samples,
     compute_kl_iteration_precision,
@@ -49,6 +56,10 @@ from qbanknote.metrics import (  # noqa: E402
     compute_mw_sample_precision,
     compute_mw_shot_stability,
     compute_statevector_fidelities_for_job,
+    fidelity_mean_shot_noise_bound,
+    fidelity_shot_noise_sd_bound,
+    fidelity_summary_row,
+    iteration_target_met,
     kl_depth_seed,
     kl_summary_row,
     load_kl_job_fidelity_rows,
@@ -56,11 +67,13 @@ from qbanknote.metrics import (  # noqa: E402
     mw_mean_shot_noise_bound,
     mw_shot_noise_sd_bound,
     mw_student_t_975,
+    read_fidelity_summary,
     reproduce_pairwise_thetas,
     resolve_kl_run_data_dir,
     run_kl_self_check,
     run_mw_self_check,
     summary_row_from_result,
+    write_fidelity_protocol_artifacts,
     write_kl_comparison_artifacts,
     write_kl_protocol_artifacts,
     write_mw_protocol_artifacts,
@@ -490,6 +503,167 @@ def test_mw_protocol_precision_helpers(tmp_path: Path) -> None:
         },
     )
     assert report_path.exists()
+    assert (tmp_path / "shot_stability.csv").exists()
+
+
+def test_fidelity_protocol_precision_helpers(tmp_path: Path) -> None:
+    assert 0.003 < fidelity_shot_noise_sd_bound(5, 2000) < 0.005
+    assert fidelity_mean_shot_noise_bound(5, 2000, 20) < fidelity_shot_noise_sd_bound(5, 2000)
+
+    shot_summary = pd.DataFrame(
+        [
+            {"ansatz": "ansatz_odra", "depth": 2, "n_samples": 10, "shots": 512, "f_phys_avg": 0.10},
+            {"ansatz": "ansatz_odra", "depth": 2, "n_samples": 10, "shots": 1024, "f_phys_avg": 0.115},
+            {"ansatz": "ansatz_odra", "depth": 2, "n_samples": 10, "shots": 2048, "f_phys_avg": 0.117},
+            {"ansatz": "ansatz_simulator", "depth": 2, "n_samples": 10, "shots": 512, "f_phys_avg": 0.08},
+            {"ansatz": "ansatz_simulator", "depth": 2, "n_samples": 10, "shots": 1024, "f_phys_avg": 0.091},
+            {"ansatz": "ansatz_simulator", "depth": 2, "n_samples": 10, "shots": 2048, "f_phys_avg": 0.092},
+        ]
+    )
+    detailed, aggregate = compute_fidelity_shot_stability(shot_summary)
+    assert not detailed.empty
+    assert not aggregate.empty
+    assert choose_fidelity_shots(shot_summary, tolerance=0.02) == 1024
+
+    sample_summary = pd.DataFrame(
+        [
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "shots": 1024,
+                "n_samples": n_samples,
+                "f_phys_std": 0.08,
+                "f_phys_sem": 0.08 / np.sqrt(n_samples),
+            }
+            for n_samples in (10, 40)
+        ]
+        + [
+            {
+                "ansatz": "ansatz_simulator",
+                "depth": 2,
+                "shots": 1024,
+                "n_samples": n_samples,
+                "f_phys_std": 0.07,
+                "f_phys_sem": 0.07 / np.sqrt(n_samples),
+            }
+            for n_samples in (10, 40)
+        ]
+    )
+    precision, precision_aggregate = compute_fidelity_sample_precision(
+        sample_summary,
+        target_half_width=0.03,
+    )
+    assert not precision.empty
+    assert not precision_aggregate.empty
+    assert choose_fidelity_samples(sample_summary, target_half_width=0.03) == 40
+
+    stable_iteration_summary = pd.DataFrame(
+        [
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "shots": 1024,
+                "n_samples": 40,
+                "iteration": iteration,
+                "f_phys_avg": 0.10 + 0.001 * iteration,
+            }
+            for iteration in range(1, 4)
+        ]
+        + [
+            {
+                "ansatz": "ansatz_simulator",
+                "depth": 2,
+                "shots": 1024,
+                "n_samples": 40,
+                "iteration": iteration,
+                "f_phys_avg": 0.08 + 0.001 * iteration,
+            }
+            for iteration in range(1, 4)
+        ]
+    )
+    iteration_precision, iteration_precision_aggregate = compute_fidelity_iteration_precision(
+        stable_iteration_summary,
+        target_half_width=0.01,
+    )
+    assert not iteration_precision.empty
+    assert bool(iteration_precision_aggregate.iloc[0]["all_meet_target"])
+    assert iteration_target_met(
+        stable_iteration_summary, target_half_width=0.01, iterations=3
+    )
+    assert (
+        choose_fidelity_iterations(
+            stable_iteration_summary,
+            target_half_width=0.01,
+            min_iterations=3,
+            max_iterations=5,
+        )
+        == 3
+    )
+
+    noisy_iteration_summary = pd.DataFrame(
+        [
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "shots": 1024,
+                "n_samples": 40,
+                "iteration": iteration,
+                "f_phys_avg": 0.10 + 0.05 * ((-1) ** iteration),
+            }
+            for iteration in range(1, 4)
+        ]
+    )
+    assert not iteration_target_met(
+        noisy_iteration_summary, target_half_width=0.01, iterations=3
+    )
+    assert (
+        choose_fidelity_iterations(
+            noisy_iteration_summary,
+            target_half_width=0.01,
+            min_iterations=3,
+            max_iterations=5,
+        )
+        == 5
+    )
+
+    summary_path = tmp_path / "iqm_fidelity_results.csv"
+    append_csv_row(
+        summary_path,
+        fidelity_summary_row(
+            ansatz="ansatz_odra",
+            depth=2,
+            shots=1024,
+            seed=42,
+            fold=1,
+            result={
+                "n_qubits": 5,
+                "n_params": 57,
+                "n_samples": 3,
+                "f_phys_avg": 0.14,
+                "f_phys_std": 0.04,
+                "f_phys_sem": 0.04 / np.sqrt(3),
+                "f_phys_min": 0.10,
+                "f_phys_max": 0.20,
+                "f_lin_avg": 0.15,
+                "f_lin_std": 0.05,
+            },
+        ),
+    )
+    assert completed_fidelity_jobs(summary_path) == {("ansatz_odra", 2)}
+    loaded = read_fidelity_summary(tmp_path, stage="iteration_pilot", iteration=1)
+    assert {"run_dir", "run_id", "stage", "iteration"} <= set(loaded.columns)
+
+    report_path = write_fidelity_protocol_artifacts(
+        tmp_path,
+        recommendation={"chosen_shots": 1024, "chosen_n_samples": 40, "chosen_iterations": 3},
+        frames={
+            "shot_stability": detailed,
+            "sample_precision": precision,
+            "iteration_precision": iteration_precision,
+        },
+    )
+    assert report_path.exists()
+    assert (tmp_path / "fidelity_protocol_recommendation.json").exists()
     assert (tmp_path / "shot_stability.csv").exists()
 
 
@@ -928,6 +1102,7 @@ def test_cli_argument_parsing() -> None:
         "run_iqm_metric_test.py",
         "select_iqm_metric_protocol.py",
         "analyze_iqm_metric_test.py",
+        "pilot_state_fidelity.py",
     ]
     for script_name in scripts:
         path = ROOT / "scripts" / script_name
@@ -1039,6 +1214,7 @@ if __name__ == "__main__":
         tmp_path = Path(tmp)
         test_mw_csv_artifact_helpers(tmp_path)
         test_mw_protocol_precision_helpers(tmp_path)
+        test_fidelity_protocol_precision_helpers(tmp_path)
         test_kl_protocol_precision_helpers(tmp_path)
         test_kl_qpu_sim_haar_analysis(tmp_path)
         test_write_protocol_and_analysis_artifacts(tmp_path)
