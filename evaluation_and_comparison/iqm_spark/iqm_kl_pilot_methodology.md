@@ -14,6 +14,12 @@ The corresponding runner is:
 python scripts/run_iqm_kl_pilot.py --pilot-id kl_pilot_paper
 ```
 
+Per-(ansatz, depth) protocol selection (independent shots/samples/iterations per job):
+
+```bash
+python scripts/run_iqm_kl_pilot.py --pilot-id kl_pilot_paper --protocol-scope per_ansatz_depth
+```
+
 The pilot writes artifacts under:
 
 ```text
@@ -141,11 +147,17 @@ default
 epsilon_S = 0.02 KL units
 ```
 
+**Global scope (default):** choose the smallest $S_k$ with $\max_{a,L} \Delta_S(a,L) \leq \epsilon_S$.
+
+**Per-job scope** (`--protocol-scope per_ansatz_depth`): for each ansatz $a$ and depth $L$
+independently, choose the smallest $S_k$ with $\Delta_S(a,L) \leq \epsilon_S$.
+
 Artifacts:
 
 - `shot_pilot_summary.csv`
 - `shot_stability.csv`
 - `shot_stability_aggregate.csv`
+- `shot_stability_by_job.csv` (per-job scope only)
 
 ## Stage 3: Sample Count (One Hardware Run + Offline Prefix Analysis)
 
@@ -167,6 +179,10 @@ Choose the smallest $N$ with
 $$
 \max_{a,L} h_N(a,L) \leq h_{\mathrm{target}},
 $$
+
+(default global scope). With `--protocol-scope per_ansatz_depth`, each $(a,L)$ job
+gets its own smallest $N$ satisfying $h_N(a,L) \leq h_{\mathrm{target}}$, using
+job-specific shots from the shot pilot.
 
 default
 
@@ -297,10 +313,9 @@ kl_protocol_recommendation.json
 
 records:
 
-- `chosen_shots`
-- `chosen_n_samples`
-- `chosen_n_bins`
-- `chosen_iterations`
+- `protocol_scope` (`global` or `per_ansatz_depth`)
+- `chosen_shots`, `chosen_n_samples`, `chosen_n_bins`, `chosen_iterations` (conservative max over jobs)
+- `protocol_by_job` (per-job scope): nested ansatz → depth → `{shots, n_samples, n_bins, iterations}`
 - tolerances and target half-widths
 - and the exact rule used for each choice.
 

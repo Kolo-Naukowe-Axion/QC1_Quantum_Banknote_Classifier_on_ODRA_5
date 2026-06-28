@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
@@ -32,6 +33,19 @@ BASIS_ORDER: tuple[BasisName, ...] = ("Z", "X", "Y")
 
 class KlPilotFallbackError(RuntimeError):
     """Raised when a KL pilot stage cannot meet its target within the tested grid."""
+
+
+@dataclass(frozen=True)
+class KlJobProtocol:
+    """Frozen hardware/analysis budget for one (ansatz, depth) job."""
+
+    shots: int
+    n_samples: int
+    n_bins: int
+    iterations: int
+
+
+KlJobKey = tuple[str, int]
 
 
 # ---------------------------------------------------------------------------
@@ -1187,6 +1201,207 @@ def completed_kl_jobs(summary_path: Path) -> set[tuple[str, int]]:
     }
 
 
+def count_kl_job_samples(fidelities_path: Path, ansatz: str, depth: int) -> int:
+    return len(completed_kl_samples(fidelities_path, ansatz, depth))
+
+
+def read_kl_job_summary_row(
+    summary_path: Path,
+    ansatz: str,
+    depth: int,
+) -> dict[str, object] | None:
+    """Return the summary CSV row for one (ansatz, depth) job, if present."""
+    frame = read_csv_or_empty(summary_path)
+    if frame.empty:
+        return None
+    subset = frame[
+        (frame["ansatz"].astype(str) == str(ansatz))
+        & (frame["depth"].astype(int) == int(depth))
+    ]
+    if subset.empty:
+        return None
+    return subset.iloc[-1].to_dict()
+
+
+def kl_job_is_complete(
+    fidelities_path: Path,
+    summary_path: Path,
+    ansatz: str,
+    depth: int,
+    n_samples: int,
+    *,
+    n_bins: int | None = None,
+    eps: float | None = None,
+) -> bool:
+    """True when enough fidelity rows exist and the summary row matches expectations."""
+    job_key = kl_job_key(ansatz, depth)
+    if count_kl_job_samples(fidelities_path, ansatz, depth) < int(n_samples):
+        return False
+    if job_key not in completed_kl_jobs(summary_path):
+        return False
+    summary_row = read_kl_job_summary_row(summary_path, ansatz, depth)
+    if summary_row is None:
+        return False
+    if int(summary_row.get("n_samples", 0)) != int(n_samples):
+        return False
+    if n_bins is not None and int(summary_row.get("n_bins", -1)) != int(n_bins):
+        return False
+    if eps is not None and float(summary_row.get("eps", -1.0)) != float(eps):
+        return False
+    return True
+
+
+def infer_shot_pilot_kl_params(
+    output_root: Path,
+    shot_grid: list[int],
+    *,
+    reference_n_samples: int | None = None,
+) -> dict[str, int | float]:
+    """Infer KL summary params from existing shot-pilot artifacts.
+
+    Prefers rows from the original pilot sample count (typically n=3) so a
+    partial top-up that wrote summaries with the wrong ``n_bins`` does not
+    pollute inference.
+    """
+    bins_counts: dict[int, int] = {}
+    eps_values: set[float] = set()
+
+    for shots in shot_grid:
+        run_dir = Path(output_root) / "shot_pilot" / f"shots_{shots}"
+        results_path = run_dir / "iqm_kl_results.csv"
+        frame = read_csv_or_empty(results_path)
+        if not frame.empty and "n_bins" in frame.columns:
+            for record in frame.to_dict(orient="records"):
+                eps_values.add(float(record.get("eps", 1e-12)))
+                n_bins = int(record["n_bins"])
+                n_samples = int(record.get("n_samples", 0))
+                if reference_n_samples is not None and n_samples != int(reference_n_samples):
+                    continue
+                bins_counts[n_bins] = bins_counts.get(n_bins, 0) + 1
+
+        manifest_path = run_dir / "run_manifest.json"
+        if manifest_path.exists():
+            import json
+
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if "n_bins" in manifest:
+                n_bins = int(manifest["n_bins"])
+                weight = len(manifest.get("depths", [1])) * len(manifest.get("ansatzes", [1]))
+                bins_counts[n_bins] = bins_counts.get(n_bins, 0) + weight
+            if "eps" in manifest:
+                eps_values.add(float(manifest["eps"]))
+
+    if not bins_counts:
+        raise ValueError(
+            "Could not infer n_bins from existing shot pilot artifacts under "
+            f"{output_root / 'shot_pilot'}"
+        )
+
+    if len(eps_values) != 1:
+        eps = 1e-12
+    else:
+        eps = next(iter(eps_values))
+
+    return {
+        "n_bins": max(bins_counts, key=bins_counts.get),
+        "eps": eps,
+    }
+
+
+def refresh_kl_job_summary_from_fidelities(
+    *,
+    fidelities_path: Path,
+    summary_path: Path,
+    ansatz: str,
+    depth: int,
+    shots: int,
+    seed: int,
+    n_qubits: int,
+    n_samples: int,
+    n_bins: int,
+    eps: float,
+) -> bool:
+    """Recompute one summary row from on-disk fidelities when metadata is stale."""
+    sample_rows = load_kl_job_fidelity_rows(fidelities_path, ansatz, depth)
+    if len(sample_rows) < int(n_samples):
+        return False
+
+    summary_row = read_kl_job_summary_row(summary_path, ansatz, depth)
+    if summary_row is not None:
+        current_bins = int(summary_row.get("n_bins", -1))
+        current_samples = int(summary_row.get("n_samples", -1))
+        current_eps = float(summary_row.get("eps", -1.0))
+        if (
+            current_bins == int(n_bins)
+            and current_samples == int(n_samples)
+            and current_eps == float(eps)
+        ):
+            return False
+
+    result = aggregate_kl_from_sample_rows(
+        sample_rows[: int(n_samples)],
+        n_qubits=n_qubits,
+        n_bins=int(n_bins),
+        eps=float(eps),
+    )
+    upsert_kl_summary_row(
+        summary_path,
+        kl_summary_row(
+            ansatz=ansatz,
+            depth=depth,
+            shots=int(shots),
+            seed=int(seed),
+            n_bins=int(n_bins),
+            eps=float(eps),
+            result=result,
+        ),
+    )
+    return True
+
+
+def upsert_kl_summary_row(summary_path: Path, row: dict[str, object]) -> None:
+    """Replace or append one (ansatz, depth) row in a KL summary CSV."""
+    import pandas as pd
+
+    new_frame = pd.DataFrame([row])
+    if not summary_path.exists() or summary_path.stat().st_size == 0:
+        new_frame.to_csv(summary_path, index=False)
+        return
+
+    existing = read_csv_or_empty(summary_path)
+    if existing.empty:
+        new_frame.to_csv(summary_path, index=False)
+        return
+
+    mask = (existing["ansatz"].astype(str) == str(row["ansatz"])) & (
+        existing["depth"].astype(int) == int(row["depth"])
+    )
+    kept = existing.loc[~mask]
+    columns = list(dict.fromkeys([*kept.columns.tolist(), *new_frame.columns.tolist()]))
+    combined = pd.concat(
+        [kept.reindex(columns=columns), new_frame.reindex(columns=columns)],
+        ignore_index=True,
+    )
+    combined.to_csv(summary_path, index=False)
+
+
+def failed_kl_shot_pilot_jobs(summary_df, *, tolerance: float) -> set[KlJobKey]:
+    """Return (ansatz, depth) jobs with no shot level satisfying tolerance."""
+    _, aggregate = compute_kl_shot_stability_by_job(summary_df)
+    if aggregate.empty:
+        raise ValueError("Cannot evaluate failed jobs from empty shot stability table")
+    failed: set[KlJobKey] = set()
+    for (ansatz, depth), job_group in aggregate.groupby(["ansatz", "depth"], dropna=False):
+        chosen = None
+        for row in job_group.sort_values("current_shot").itertuples(index=False):
+            if float(row.abs_change_kl_physical) <= tolerance:
+                chosen = int(row.current_shot)
+                break
+        if chosen is None:
+            failed.add(kl_job_key(str(ansatz), int(depth)))
+    return failed
+
+
 def completed_kl_samples(
     fidelities_path: Path,
     ansatz: str,
@@ -1305,6 +1520,9 @@ def run_iqm_kl_sweep(
     verbose: bool = False,
     progress_callback: Callable[[str, int, int], None] | None = None,
     manifest_extra: dict[str, object] | None = None,
+    shots_by_job: dict[KlJobKey, int] | None = None,
+    n_samples_by_job: dict[KlJobKey, int] | None = None,
+    jobs_filter: set[KlJobKey] | None = None,
 ) -> Path:
     """Run KL expressibility hardware sweep with resumable CSV artifacts."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1312,13 +1530,32 @@ def run_iqm_kl_sweep(
     fidelities_path = output_dir / "iqm_kl_fidelities.csv"
     manifest_path = output_dir / "run_manifest.json"
 
-    completed = completed_kl_jobs(summary_path) if resume else set()
     jobs = [(ansatz_name, depth) for depth in depths for ansatz_name in ansatz_names]
+    if jobs_filter is not None:
+        jobs = [job for job in jobs if job in jobs_filter]
     total_jobs = len(jobs)
-    done_jobs = sum(1 for job in jobs if job in completed)
+    done_jobs = 0
+    resolved_shots_by_job: dict[str, int] = {}
+    resolved_samples_by_job: dict[str, int] = {}
 
     for ansatz_name, depth in jobs:
-        if (ansatz_name, depth) in completed:
+        job_key = kl_job_key(ansatz_name, depth)
+        job_shots = int((shots_by_job or {}).get(job_key, shots))
+        job_n_samples = int((n_samples_by_job or {}).get(job_key, n_samples))
+        resolved_shots_by_job[f"{ansatz_name}:depth={depth}"] = job_shots
+        resolved_samples_by_job[f"{ansatz_name}:depth={depth}"] = job_n_samples
+
+        if resume and kl_job_is_complete(
+            fidelities_path,
+            summary_path,
+            ansatz_name,
+            depth,
+            job_n_samples,
+            n_bins=n_bins,
+            eps=eps,
+        ):
+            done_jobs += 1
+            report_progress(progress_callback, "kl_jobs", done_jobs, total_jobs)
             continue
 
         depth_seed = kl_depth_seed(seed, depth, ansatz_name)
@@ -1330,11 +1567,15 @@ def run_iqm_kl_sweep(
         if saved_samples and verbose:
             print(
                 f"Resuming {ansatz_name} depth={depth}: "
-                f"{len(saved_samples)}/{n_samples} samples on disk",
+                f"{len(saved_samples)}/{job_n_samples} samples on disk",
                 flush=True,
             )
         elif verbose:
-            print(f"Running {ansatz_name} depth={depth}", flush=True)
+            print(
+                f"Running {ansatz_name} depth={depth} "
+                f"(shots={job_shots}, n_samples={job_n_samples})",
+                flush=True,
+            )
 
         def _persist_sample(row: dict[str, object]) -> None:
             append_csv_row(
@@ -1347,9 +1588,9 @@ def run_iqm_kl_sweep(
             ansatz_fns[ansatz_name],
             n_qubits=n_qubits,
             depth=depth,
-            n_samples=n_samples,
+            n_samples=job_n_samples,
             seed=depth_seed,
-            shots=shots,
+            shots=job_shots,
             optimization_level=optimization_level,
             seed_transpiler=seed_transpiler,
             max_circuits_per_job=max_circuits_per_job,
@@ -1367,24 +1608,24 @@ def run_iqm_kl_sweep(
 
         sample_rows = existing_rows + new_rows
         sample_rows.sort(key=lambda row: int(row["sample_index"]))
-        if len(sample_rows) < n_samples:
+        if len(sample_rows) < job_n_samples:
             raise RuntimeError(
                 f"Incomplete KL job {ansatz_name} depth={depth}: "
-                f"expected {n_samples} samples, got {len(sample_rows)}"
+                f"expected {job_n_samples} samples, got {len(sample_rows)}"
             )
 
         result = aggregate_kl_from_sample_rows(
-            sample_rows[:n_samples],
+            sample_rows[:job_n_samples],
             n_qubits=n_qubits,
             n_bins=n_bins,
             eps=eps,
         )
-        append_csv_row(
+        upsert_kl_summary_row(
             summary_path,
             kl_summary_row(
                 ansatz=ansatz_name,
                 depth=depth,
-                shots=shots,
+                shots=job_shots,
                 seed=depth_seed,
                 n_bins=n_bins,
                 eps=eps,
@@ -1419,13 +1660,21 @@ def run_iqm_kl_sweep(
         ),
         "outputs": ["iqm_kl_results.csv", "iqm_kl_fidelities.csv"],
     }
+    if shots_by_job:
+        manifest["shots_by_job"] = resolved_shots_by_job
+    if n_samples_by_job:
+        manifest["n_samples_by_job"] = resolved_samples_by_job
     if manifest_extra:
         manifest.update(manifest_extra)
     write_mw_manifest(manifest_path, backend=backend, manifest=manifest)
     return output_dir
 
 
-def compute_kl_shot_stability(summary_df) -> tuple[object, object]:
+def compute_kl_shot_stability(
+    summary_df,
+    *,
+    aggregate_group_keys: list[str] | None = None,
+) -> tuple[object, object]:
     """Compare consecutive shot budgets for each ansatz/depth/sample setting."""
     if summary_df.empty or "shots" not in summary_df.columns:
         return summary_df.iloc[0:0].copy(), summary_df.iloc[0:0].copy()
@@ -1463,18 +1712,49 @@ def compute_kl_shot_stability(summary_df) -> tuple[object, object]:
     if detailed.empty:
         return detailed, pd.DataFrame()
 
+    agg_keys = aggregate_group_keys or ["previous_shot", "current_shot"]
     aggregate_rows = []
-    for keys, group in detailed.groupby(["previous_shot", "current_shot"], dropna=False):
-        previous_shot, current_shot = keys
-        aggregate_rows.append(
-            {
-                "previous_shot": int(previous_shot),
-                "current_shot": int(current_shot),
-                "mean_abs_change_kl_physical": float(group["abs_change_kl_physical"].mean()),
-                "max_abs_change_kl_physical": float(group["abs_change_kl_physical"].max()),
-            }
-        )
+    for keys, group in detailed.groupby(agg_keys, dropna=False):
+        if len(agg_keys) == 2:
+            previous_shot, current_shot = keys
+            aggregate_rows.append(
+                {
+                    "previous_shot": int(previous_shot),
+                    "current_shot": int(current_shot),
+                    "mean_abs_change_kl_physical": float(group["abs_change_kl_physical"].mean()),
+                    "max_abs_change_kl_physical": float(group["abs_change_kl_physical"].max()),
+                }
+            )
+        else:
+            ansatz, depth, previous_shot, current_shot = keys
+            aggregate_rows.append(
+                {
+                    "ansatz": ansatz,
+                    "depth": int(depth),
+                    "previous_shot": int(previous_shot),
+                    "current_shot": int(current_shot),
+                    "abs_change_kl_physical": float(group["abs_change_kl_physical"].max()),
+                }
+            )
     return detailed, pd.DataFrame(aggregate_rows)
+
+
+def compute_kl_shot_stability_by_job(summary_df) -> tuple[object, object]:
+    """Per-(ansatz, depth) consecutive-shot stability table."""
+    return compute_kl_shot_stability(
+        summary_df,
+        aggregate_group_keys=["ansatz", "depth", "previous_shot", "current_shot"],
+    )
+
+
+def latest_kl_shot_pilot_summary(summary_df):
+    """Keep all shot-level rows at each job's largest n_samples."""
+    import pandas as pd
+
+    if summary_df.empty:
+        return summary_df
+    max_n = summary_df.groupby(["ansatz", "depth"], dropna=False)["n_samples"].transform("max")
+    return summary_df.loc[summary_df["n_samples"] == max_n].copy()
 
 
 def choose_kl_shots(summary_df, *, tolerance: float) -> int:
@@ -1499,6 +1779,258 @@ def choose_kl_shots(summary_df, *, tolerance: float) -> int:
         f"with max |Delta KL| = {float(worst.max_abs_change_kl_physical):.4g}. "
         f"Expand shot_grid or relax shot_tolerance."
     )
+
+
+def choose_kl_shots_by_job(summary_df, *, tolerance: float) -> dict[str, dict[int, int]]:
+    """Choose smallest shot count independently for each (ansatz, depth) job."""
+    if tolerance <= 0:
+        raise ValueError("tolerance must be positive")
+    if summary_df.empty:
+        raise ValueError("KL pilot summary is empty; cannot choose shots")
+    detailed, aggregate = compute_kl_shot_stability_by_job(summary_df)
+    if aggregate.empty:
+        raise KlPilotFallbackError(
+            "KL shot pilot fallback: per-job shot stability table is empty. "
+            "Cannot choose shots; check shot_pilot_summary.csv."
+        )
+
+    result: dict[str, dict[int, int]] = {}
+    failures: list[str] = []
+    for (ansatz, depth), job_group in aggregate.groupby(["ansatz", "depth"], dropna=False):
+        chosen = None
+        for row in job_group.sort_values("current_shot").itertuples(index=False):
+            if float(row.abs_change_kl_physical) <= tolerance:
+                chosen = int(row.current_shot)
+                break
+        if chosen is None:
+            worst = job_group.loc[job_group["abs_change_kl_physical"].idxmax()]
+            failures.append(
+                f"{ansatz} depth={int(depth)}: "
+                f"{int(worst.previous_shot)}->{int(worst.current_shot)} "
+                f"|dKL|={float(worst.abs_change_kl_physical):.4g}"
+            )
+        else:
+            result.setdefault(str(ansatz), {})[int(depth)] = chosen
+
+    if failures:
+        raise KlPilotFallbackError(
+            "KL shot pilot fallback (per job): no shot count satisfies "
+            f"|Delta KL_physical| <= {tolerance:.4g} for: "
+            + "; ".join(failures)
+            + ". Expand shot_grid or relax shot_tolerance."
+        )
+    return result
+
+
+def nested_job_int_map_to_flat(
+    nested: dict[str, dict[int, int]],
+) -> dict[KlJobKey, int]:
+    flat: dict[KlJobKey, int] = {}
+    for ansatz, depths in nested.items():
+        for depth, value in depths.items():
+            flat[kl_job_key(ansatz, int(depth))] = int(value)
+    return flat
+
+
+def flat_job_int_map_to_nested(
+    flat: dict[KlJobKey, int],
+) -> dict[str, dict[int, int]]:
+    nested: dict[str, dict[int, int]] = {}
+    for (ansatz, depth), value in flat.items():
+        nested.setdefault(str(ansatz), {})[int(depth)] = int(value)
+    return nested
+
+
+def protocol_by_job_to_flat_maps(
+    protocol_by_job: dict[str, dict[str, object]],
+) -> tuple[dict[KlJobKey, int], dict[KlJobKey, int], dict[KlJobKey, int]]:
+    shots_by_job: dict[KlJobKey, int] = {}
+    n_samples_by_job: dict[KlJobKey, int] = {}
+    iterations_by_job: dict[KlJobKey, int] = {}
+    for ansatz, depths in protocol_by_job.items():
+        for depth_str, settings in depths.items():
+            if not isinstance(settings, dict):
+                raise ValueError(f"Invalid protocol entry for {ansatz} depth={depth_str}")
+            key = kl_job_key(ansatz, int(depth_str))
+            shots_by_job[key] = int(settings["shots"])
+            n_samples_by_job[key] = int(settings["n_samples"])
+            iterations_by_job[key] = int(settings["iterations"])
+    return shots_by_job, n_samples_by_job, iterations_by_job
+
+
+def build_kl_protocol_by_job(
+    *,
+    shots_by_job: dict[str, dict[int, int]],
+    samples_by_job: dict[str, dict[int, int]],
+    iterations_by_job: dict[str, dict[int, int]],
+    n_bins: int,
+) -> dict[str, object]:
+    """Assemble nested protocol_by_job and conservative legacy scalar summaries."""
+    ansatzes = sorted(
+        set(shots_by_job) | set(samples_by_job) | set(iterations_by_job)
+    )
+    protocol_by_job: dict[str, dict[str, dict[str, int]]] = {}
+    all_shots: list[int] = []
+    all_samples: list[int] = []
+    all_iterations: list[int] = []
+    for ansatz in ansatzes:
+        depths = sorted(
+            set(shots_by_job.get(ansatz, {}))
+            | set(samples_by_job.get(ansatz, {}))
+            | set(iterations_by_job.get(ansatz, {}))
+        )
+        protocol_by_job[ansatz] = {}
+        for depth in depths:
+            shots = int(shots_by_job[ansatz][depth])
+            n_samples = int(samples_by_job[ansatz][depth])
+            iterations = int(iterations_by_job[ansatz][depth])
+            protocol_by_job[ansatz][str(depth)] = {
+                "shots": shots,
+                "n_samples": n_samples,
+                "n_bins": int(n_bins),
+                "iterations": iterations,
+            }
+            all_shots.append(shots)
+            all_samples.append(n_samples)
+            all_iterations.append(iterations)
+    if not all_shots:
+        raise ValueError("protocol_by_job is empty")
+    return {
+        "protocol_scope": "per_ansatz_depth",
+        "protocol_by_job": protocol_by_job,
+        "chosen_shots": int(max(all_shots)),
+        "chosen_n_samples": int(max(all_samples)),
+        "chosen_n_bins": int(n_bins),
+        "chosen_iterations": int(max(all_iterations)),
+    }
+
+
+def resolve_kl_job_protocol(
+    protocol: dict[str, object],
+    ansatz: str,
+    depth: int,
+) -> KlJobProtocol:
+    """Resolve the hardware budget for one job from a pilot recommendation."""
+    scope = str(protocol.get("protocol_scope", "global"))
+    if scope == "per_ansatz_depth":
+        protocol_by_job = protocol.get("protocol_by_job")
+        if not isinstance(protocol_by_job, dict):
+            raise ValueError("per_ansatz_depth protocol missing protocol_by_job")
+        ansatz_cfg = protocol_by_job.get(str(ansatz))
+        if not isinstance(ansatz_cfg, dict):
+            raise ValueError(f"No protocol entry for ansatz={ansatz}")
+        job_cfg = ansatz_cfg.get(str(int(depth)))
+        if not isinstance(job_cfg, dict):
+            raise ValueError(f"No protocol entry for ansatz={ansatz} depth={depth}")
+        return KlJobProtocol(
+            shots=int(job_cfg["shots"]),
+            n_samples=int(job_cfg["n_samples"]),
+            n_bins=int(job_cfg["n_bins"]),
+            iterations=int(job_cfg["iterations"]),
+        )
+    return KlJobProtocol(
+        shots=int(protocol["chosen_shots"]),
+        n_samples=int(protocol["chosen_n_samples"]),
+        n_bins=int(protocol["chosen_n_bins"]),
+        iterations=int(protocol["chosen_iterations"]),
+    )
+
+
+def choose_kl_samples_by_job(
+    fidelities_df,
+    *,
+    sample_grid: list[int],
+    dim: int,
+    n_bins: int,
+    eps: float,
+    target_half_width: float,
+    n_bootstrap: int = 400,
+    seed: int = 0,
+    z_value: float = 1.96,
+) -> dict[str, dict[int, int]]:
+    """Choose n_samples independently for each (ansatz, depth) job."""
+    if fidelities_df.empty:
+        raise ValueError("KL fidelity table is empty; cannot choose n_samples")
+
+    result: dict[str, dict[int, int]] = {}
+    failures: list[str] = []
+    for (ansatz, depth), group in fidelities_df.groupby(["ansatz", "depth"], dropna=False):
+        try:
+            chosen = choose_kl_samples(
+                group,
+                sample_grid=sample_grid,
+                dim=dim,
+                n_bins=n_bins,
+                eps=eps,
+                target_half_width=target_half_width,
+                n_bootstrap=n_bootstrap,
+                seed=seed,
+                z_value=z_value,
+            )
+        except KlPilotFallbackError as exc:
+            failures.append(f"{ansatz} depth={int(depth)}: {exc}")
+        else:
+            result.setdefault(str(ansatz), {})[int(depth)] = int(chosen)
+
+    if failures:
+        raise KlPilotFallbackError(
+            "KL sample pilot fallback (per job): "
+            + "; ".join(failures)
+        )
+    return result
+
+
+def choose_kl_iterations_by_job(
+    summary_df,
+    *,
+    target_half_width: float,
+    min_iterations: int = 2,
+    max_iterations: int = 4,
+) -> dict[str, dict[int, int]]:
+    """Choose iteration count independently for each (ansatz, depth) job."""
+    if summary_df.empty:
+        raise ValueError("KL iteration pilot summary is empty; cannot choose iterations")
+
+    result: dict[str, dict[int, int]] = {}
+    failures: list[str] = []
+    for (ansatz, depth), group in summary_df.groupby(["ansatz", "depth"], dropna=False):
+        try:
+            chosen = choose_kl_iterations(
+                group,
+                target_half_width=target_half_width,
+                min_iterations=min_iterations,
+                max_iterations=max_iterations,
+            )
+        except KlPilotFallbackError as exc:
+            failures.append(f"{ansatz} depth={int(depth)}: {exc}")
+        else:
+            result.setdefault(str(ansatz), {})[int(depth)] = int(chosen)
+
+    if failures:
+        raise KlPilotFallbackError(
+            "KL iteration pilot fallback (per job): "
+            + "; ".join(failures)
+        )
+    return result
+
+
+def kl_iteration_target_met_by_job(
+    summary_df,
+    *,
+    target_half_width: float,
+    iterations: int,
+) -> bool:
+    """Return True when every (ansatz, depth) job meets the drift half-width target."""
+    if summary_df.empty:
+        return False
+    for (_, _), group in summary_df.groupby(["ansatz", "depth"], dropna=False):
+        if not kl_iteration_target_met(
+            group,
+            target_half_width=target_half_width,
+            iterations=iterations,
+        ):
+            return False
+    return True
 
 
 def compute_kl_prefix_precision(

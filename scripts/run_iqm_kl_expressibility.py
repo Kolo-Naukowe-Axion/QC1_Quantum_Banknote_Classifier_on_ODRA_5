@@ -21,6 +21,7 @@ from qbanknote.iqm import connect_to_iqm_backend  # noqa: E402
 from qbanknote.metrics import (  # noqa: E402
     compute_kl_iteration_precision,
     estimate_wall_time_minutes,
+    protocol_by_job_to_flat_maps,
     read_kl_summary,
     run_iqm_kl_sweep,
     total_expressibility_circuits,
@@ -81,17 +82,38 @@ def parse_args() -> argparse.Namespace:
 
 def _apply_protocol(args: argparse.Namespace) -> dict[str, object] | None:
     if not args.protocol_json:
+        args.shots_by_job = None
+        args.n_samples_by_job = None
         return None
     protocol_path = Path(args.protocol_json)
     if not protocol_path.is_file():
         raise SystemExit(f"Protocol file not found: {protocol_path}")
     protocol = json.loads(protocol_path.read_text())
-    args.shots = int(protocol.get("chosen_shots", args.shots))
-    args.samples = int(protocol.get("chosen_n_samples", args.samples))
-    args.n_bins = int(protocol.get("chosen_n_bins", args.n_bins))
-    args.eps = float(protocol.get("eps", args.eps))
-    if protocol.get("chosen_iterations") is not None and args.iterations == 1:
-        args.iterations = int(protocol["chosen_iterations"])
+    scope = str(protocol.get("protocol_scope", "global"))
+    args.shots_by_job = None
+    args.n_samples_by_job = None
+    if scope == "per_ansatz_depth":
+        protocol_by_job = protocol.get("protocol_by_job")
+        if not isinstance(protocol_by_job, dict):
+            raise SystemExit("per_ansatz_depth protocol missing protocol_by_job")
+        shots_by_job, n_samples_by_job, iterations_by_job = protocol_by_job_to_flat_maps(
+            protocol_by_job
+        )
+        args.shots_by_job = shots_by_job
+        args.n_samples_by_job = n_samples_by_job
+        args.shots = int(max(shots_by_job.values()))
+        args.samples = int(max(n_samples_by_job.values()))
+        args.n_bins = int(protocol.get("chosen_n_bins", args.n_bins))
+        args.eps = float(protocol.get("eps", args.eps))
+        if protocol.get("chosen_iterations") is not None and args.iterations == 1:
+            args.iterations = int(max(iterations_by_job.values()))
+    else:
+        args.shots = int(protocol.get("chosen_shots", args.shots))
+        args.samples = int(protocol.get("chosen_n_samples", args.samples))
+        args.n_bins = int(protocol.get("chosen_n_bins", args.n_bins))
+        args.eps = float(protocol.get("eps", args.eps))
+        if protocol.get("chosen_iterations") is not None and args.iterations == 1:
+            args.iterations = int(protocol["chosen_iterations"])
     return protocol
 
 
@@ -146,9 +168,14 @@ def main() -> None:
             resume=args.resume,
             verbose=not args.quiet,
             progress_callback=progress_callback,
+            shots_by_job=getattr(args, "shots_by_job", None),
+            n_samples_by_job=getattr(args, "n_samples_by_job", None),
             manifest_extra={
                 "run_id": run_id,
                 "iteration": iteration,
+                "protocol_scope": (
+                    str(protocol.get("protocol_scope", "global")) if protocol else "global"
+                ),
                 "iqm_url": args.iqm_url,
                 "protocol_json": str(args.protocol_json) if args.protocol_json else None,
             },

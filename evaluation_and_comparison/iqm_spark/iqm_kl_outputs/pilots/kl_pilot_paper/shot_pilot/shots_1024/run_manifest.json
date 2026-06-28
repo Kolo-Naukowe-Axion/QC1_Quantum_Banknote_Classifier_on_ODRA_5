@@ -1,0 +1,49 @@
+{
+  "ansatzes": [
+    "ansatz_odra",
+    "ansatz_simulator"
+  ],
+  "backend": "<iqm.qiskit_iqm.iqm_provider.IQMBackend object at 0x00000206580D4560>",
+  "circuits_per_fidelity_sample": 486,
+  "created_utc": "2026-06-27T02:13:15.641264+00:00",
+  "depths": [
+    2,
+    4,
+    6
+  ],
+  "eps": 1e-12,
+  "fidelity_definition": "Tr(rho_a @ rho_b) from full 3^n Pauli tomography",
+  "iqm_url": "https://odra5.e-science.pl/",
+  "kl_direction": "P_hardware || P_Haar",
+  "max_circuits_per_job": 250,
+  "method": "hardware_hardware_overlap_tomography",
+  "n_bins": 400,
+  "n_qubits": 5,
+  "n_samples": 35,
+  "n_samples_by_job": {
+    "ansatz_odra:depth=4": 35,
+    "ansatz_simulator:depth=2": 35
+  },
+  "optimization_level": 1,
+  "outputs": [
+    "iqm_kl_results.csv",
+    "iqm_kl_fidelities.csv"
+  ],
+  "pilot_id": "kl_pilot_paper",
+  "pilot_samples_target": 35,
+  "pilot_stage": "shot_pilot_topup",
+  "seed": 42,
+  "shots": 1024,
+  "source_script": "scripts/run_iqm_kl_expressibility.py",
+  "topup_failed_jobs": [
+    [
+      "ansatz_odra",
+      4
+    ],
+    [
+      "ansatz_simulator",
+      2
+    ]
+  ],
+  "total_tomography_circuits": 102060
+}

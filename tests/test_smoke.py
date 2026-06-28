@@ -33,17 +33,25 @@ from qbanknote.metrics import (  # noqa: E402
     choose_kl_iterations,
     choose_kl_samples,
     choose_kl_shots,
+    choose_kl_shots_by_job,
+    build_kl_protocol_by_job,
     choose_mw_iterations,
     choose_mw_samples,
     choose_mw_shots,
     completed_kl_jobs,
     completed_kl_samples,
+    count_kl_job_samples,
+    failed_kl_shot_pilot_jobs,
+    infer_shot_pilot_kl_params,
+    kl_job_is_complete,
+    latest_kl_shot_pilot_summary,
     completed_mw_jobs,
     compute_kl_bin_sensitivity,
     compute_kl_between_fidelity_samples,
     compute_kl_iteration_precision,
     compute_kl_prefix_precision,
     compute_kl_shot_stability,
+    compute_kl_shot_stability_by_job,
     compute_mw_iteration_precision,
     compute_mw_iteration_stability,
     compute_mw_sample_precision,
@@ -52,11 +60,16 @@ from qbanknote.metrics import (  # noqa: E402
     kl_depth_seed,
     kl_summary_row,
     load_kl_job_fidelity_rows,
+    upsert_kl_summary_row,
     mw_iteration_half_width,
     mw_mean_shot_noise_bound,
     mw_shot_noise_sd_bound,
     mw_student_t_975,
     reproduce_pairwise_thetas,
+    refresh_kl_job_summary_from_fidelities,
+    nested_job_int_map_to_flat,
+    protocol_by_job_to_flat_maps,
+    resolve_kl_job_protocol,
     resolve_kl_run_data_dir,
     run_kl_self_check,
     run_mw_self_check,
@@ -640,6 +653,72 @@ def test_kl_protocol_precision_helpers(tmp_path: Path) -> None:
     loaded = load_kl_job_fidelity_rows(fidelities_path, "ansatz_odra", 4)
     assert [int(row["sample_index"]) for row in loaded] == [0, 2]
     assert loaded[1]["fidelity_physical"] == 0.4
+    assert count_kl_job_samples(fidelities_path, "ansatz_odra", 4) == 2
+    assert not kl_job_is_complete(fidelities_path, summary_path, "ansatz_odra", 4, 3)
+    append_csv_row(
+        fidelities_path,
+        {
+            "ansatz": "ansatz_odra",
+            "depth": 4,
+            "sample_index": 1,
+            "fidelity_linear": 0.2,
+            "fidelity_physical": 0.3,
+        },
+    )
+    assert kl_job_is_complete(fidelities_path, summary_path, "ansatz_odra", 2, 1)
+    assert not kl_job_is_complete(fidelities_path, summary_path, "ansatz_odra", 2, 3)
+
+    upsert_kl_summary_row(
+        summary_path,
+        kl_summary_row(
+            ansatz="ansatz_odra",
+            depth=2,
+            shots=2048,
+            seed=42,
+            n_bins=chosen_bins,
+            eps=1e-12,
+            result={
+                "n_qubits": 5,
+                "n_samples": 10,
+                "kl_physical": 0.6,
+                "kl_linear": 0.65,
+                "f_physical_mean": 0.1,
+                "f_physical_std": 0.05,
+                "f_linear_mean": 0.1,
+                "f_linear_std": 0.05,
+            },
+        ),
+    )
+    updated = pd.read_csv(summary_path)
+    assert len(updated) == 1
+    assert int(updated.iloc[0]["shots"]) == 2048
+    assert int(updated.iloc[0]["n_samples"]) == 10
+
+    shot_summary = pd.DataFrame(
+        [
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "shots": shots,
+                "n_samples": 3,
+                "kl_physical": kl,
+            }
+            for shots, kl in [(512, 0.50), (1024, 0.51), (2048, 0.52), (4096, 0.53)]
+        ]
+        + [
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 6,
+                "shots": shots,
+                "n_samples": 3,
+                "kl_physical": kl,
+            }
+            for shots, kl in [(512, 0.50), (1024, 0.505), (2048, 0.506)]
+        ]
+    )
+    failed = failed_kl_shot_pilot_jobs(shot_summary, tolerance=0.02)
+    assert failed == {("ansatz_odra", 2)}
+    assert not failed_kl_shot_pilot_jobs(shot_summary, tolerance=0.05)
 
     iteration_summary = pd.DataFrame(
         [
@@ -696,6 +775,205 @@ def test_kl_protocol_precision_helpers(tmp_path: Path) -> None:
     )
     assert report_path.exists()
     assert (tmp_path / "shot_stability.csv").exists()
+
+
+def test_kl_per_job_protocol_selectors() -> None:
+    shot_summary = pd.DataFrame(
+        [
+            {"ansatz": "ansatz_odra", "depth": 2, "n_samples": 3, "shots": 512, "kl_physical": 0.50},
+            {"ansatz": "ansatz_odra", "depth": 2, "n_samples": 3, "shots": 1024, "kl_physical": 0.515},
+            {"ansatz": "ansatz_odra", "depth": 2, "n_samples": 3, "shots": 2048, "kl_physical": 0.517},
+            {"ansatz": "ansatz_simulator", "depth": 2, "n_samples": 3, "shots": 512, "kl_physical": 0.40},
+            {"ansatz": "ansatz_simulator", "depth": 2, "n_samples": 3, "shots": 1024, "kl_physical": 0.60},
+            {"ansatz": "ansatz_simulator", "depth": 2, "n_samples": 3, "shots": 2048, "kl_physical": 0.61},
+        ]
+    )
+    _, by_job = compute_kl_shot_stability_by_job(shot_summary)
+    assert not by_job.empty
+    assert set(by_job["ansatz"]) == {"ansatz_odra", "ansatz_simulator"}
+
+    shots_by_job = choose_kl_shots_by_job(shot_summary, tolerance=0.02)
+    assert shots_by_job["ansatz_odra"][2] == 1024
+    assert shots_by_job["ansatz_simulator"][2] == 2048
+
+    built = build_kl_protocol_by_job(
+        shots_by_job=shots_by_job,
+        samples_by_job={"ansatz_odra": {2: 10}, "ansatz_simulator": {2: 15}},
+        iterations_by_job={"ansatz_odra": {2: 2}, "ansatz_simulator": {2: 3}},
+        n_bins=150,
+    )
+    assert built["protocol_scope"] == "per_ansatz_depth"
+    assert built["chosen_shots"] == 2048
+    assert built["chosen_n_samples"] == 15
+    assert built["chosen_iterations"] == 3
+
+    flat_shots, flat_samples, flat_iters = protocol_by_job_to_flat_maps(
+        built["protocol_by_job"]
+    )
+    assert flat_shots[("ansatz_odra", 2)] == 1024
+    assert flat_samples[("ansatz_simulator", 2)] == 15
+    assert flat_iters[("ansatz_simulator", 2)] == 3
+
+    job_protocol = resolve_kl_job_protocol(built, "ansatz_simulator", 2)
+    assert job_protocol.shots == 2048
+    assert job_protocol.n_samples == 15
+    assert job_protocol.iterations == 3
+
+    global_protocol = {
+        "protocol_scope": "global",
+        "chosen_shots": 4096,
+        "chosen_n_samples": 20,
+        "chosen_n_bins": 100,
+        "chosen_iterations": 2,
+    }
+    assert resolve_kl_job_protocol(global_protocol, "ansatz_odra", 4).shots == 4096
+
+    flat = nested_job_int_map_to_flat(shots_by_job)
+    assert flat[("ansatz_odra", 2)] == 1024
+
+
+def test_latest_kl_shot_pilot_summary_uses_max_n_per_job() -> None:
+    shot_summary = pd.DataFrame(
+        [
+            {"ansatz": "ansatz_odra", "depth": 4, "n_samples": 30, "shots": 2048, "kl_physical": 1.80},
+            {"ansatz": "ansatz_odra", "depth": 4, "n_samples": 30, "shots": 4096, "kl_physical": 1.78},
+            {"ansatz": "ansatz_odra", "depth": 4, "n_samples": 40, "shots": 2048, "kl_physical": 1.78},
+            {"ansatz": "ansatz_odra", "depth": 4, "n_samples": 40, "shots": 4096, "kl_physical": 1.76},
+            {"ansatz": "ansatz_simulator", "depth": 2, "n_samples": 35, "shots": 2048, "kl_physical": 0.90},
+            {"ansatz": "ansatz_simulator", "depth": 2, "n_samples": 35, "shots": 4096, "kl_physical": 0.81},
+        ]
+    )
+    latest = latest_kl_shot_pilot_summary(shot_summary)
+    assert set(latest["n_samples"]) == {35, 40}
+    assert len(latest) == 4
+    odra_latest = latest[latest["ansatz"] == "ansatz_odra"]
+    shots_by_job = choose_kl_shots_by_job(odra_latest, tolerance=0.025)
+    assert shots_by_job["ansatz_odra"][4] == 4096
+
+
+def test_kl_shot_pilot_topup_infers_original_bins(tmp_path: Path) -> None:
+    import json
+
+    output_root = tmp_path / "pilot"
+    shot_grid = [512, 1024]
+    for shots in shot_grid:
+        run_dir = output_root / "shot_pilot" / f"shots_{shots}"
+        run_dir.mkdir(parents=True)
+        (run_dir / "run_manifest.json").write_text(
+            json.dumps(
+                {
+                    "n_bins": 400,
+                    "eps": 1e-12,
+                    "depths": [2, 4, 6],
+                    "ansatzes": ["ansatz_odra", "ansatz_simulator"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        pd.DataFrame(
+            [
+                {
+                    "ansatz": "ansatz_odra",
+                    "depth": 2,
+                    "n_samples": 3,
+                    "shots": shots,
+                    "n_bins": 400,
+                    "eps": 1e-12,
+                    "kl_physical": 1.0,
+                },
+                {
+                    "ansatz": "ansatz_odra",
+                    "depth": 2,
+                    "n_samples": 10,
+                    "shots": shots,
+                    "n_bins": 150,
+                    "eps": 1e-12,
+                    "kl_physical": 0.5,
+                },
+            ]
+        ).to_csv(run_dir / "iqm_kl_results.csv", index=False)
+
+    inferred = infer_shot_pilot_kl_params(output_root, shot_grid, reference_n_samples=3)
+    assert inferred["n_bins"] == 400
+    assert inferred["eps"] == 1e-12
+
+
+def test_kl_job_is_complete_rejects_stale_summary(tmp_path: Path) -> None:
+    fidelities_path = tmp_path / "iqm_kl_fidelities.csv"
+    summary_path = tmp_path / "iqm_kl_results.csv"
+    for sample_index in range(10):
+        append_csv_row(
+            fidelities_path,
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "sample_index": sample_index,
+                "fidelity_linear": 0.03,
+                "fidelity_physical": 0.03,
+                "trace_a_linear": 1.0,
+                "trace_a_physical": 1.0,
+                "trace_b_linear": 1.0,
+                "trace_b_physical": 1.0,
+                "purity_a_linear": 0.5,
+                "purity_a_physical": 0.5,
+                "purity_b_linear": 0.5,
+                "purity_b_physical": 0.5,
+            },
+        )
+    pd.DataFrame(
+        [
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "n_qubits": 5,
+                "n_samples": 10,
+                "shots": 512,
+                "seed": 242,
+                "n_bins": 150,
+                "eps": 1e-12,
+                "kl_physical": 0.5,
+                "kl_linear": 0.5,
+                "f_physical_mean": 0.03,
+                "f_physical_std": 0.0,
+                "f_linear_mean": 0.03,
+                "f_linear_std": 0.0,
+            }
+        ]
+    ).to_csv(summary_path, index=False)
+
+    assert not kl_job_is_complete(
+        fidelities_path,
+        summary_path,
+        "ansatz_odra",
+        2,
+        10,
+        n_bins=400,
+        eps=1e-12,
+    )
+    assert refresh_kl_job_summary_from_fidelities(
+        fidelities_path=fidelities_path,
+        summary_path=summary_path,
+        ansatz="ansatz_odra",
+        depth=2,
+        shots=512,
+        seed=242,
+        n_qubits=5,
+        n_samples=10,
+        n_bins=400,
+        eps=1e-12,
+    )
+    refreshed = pd.read_csv(summary_path)
+    assert int(refreshed.iloc[0]["n_bins"]) == 400
+    assert int(refreshed.iloc[0]["n_samples"]) == 10
+    assert kl_job_is_complete(
+        fidelities_path,
+        summary_path,
+        "ansatz_odra",
+        2,
+        10,
+        n_bins=400,
+        eps=1e-12,
+    )
 
 
 def test_kl_qpu_sim_haar_analysis(tmp_path: Path) -> None:
@@ -982,6 +1260,7 @@ def test_cli_argument_parsing() -> None:
     assert kl_pilot_args.max_samples == 30
     assert kl_pilot_args.shot_pilot_depth == [2, 4, 6]
     assert kl_pilot_args.pilot_samples == 3
+    assert kl_pilot_args.protocol_scope == "global"
     budget = kl_pilot_module.estimate_kl_pilot_budget(
         n_ansatzes=2,
         shot_grid=kl_pilot_args.shot_grid,

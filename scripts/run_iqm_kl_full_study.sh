@@ -15,6 +15,7 @@
 # Environment overrides:
 #   PILOT_ID=kl_pilot_paper
 #   RUN_ID=kl_full_study
+#   PROTOCOL_SCOPE=global|per_ansatz_depth
 #   IQM_URL=https://odra5.e-science.pl/
 #   SKIP_PILOT=0|1
 #   SKIP_PRODUCTION=0|1
@@ -28,6 +29,7 @@ cd "$ROOT"
 
 PILOT_ID="${PILOT_ID:-kl_pilot_paper}"
 RUN_ID="${RUN_ID:-kl_full_study}"
+PROTOCOL_SCOPE="${PROTOCOL_SCOPE:-global}"
 SKIP_PILOT="${SKIP_PILOT:-0}"
 SKIP_PRODUCTION="${SKIP_PRODUCTION:-0}"
 SKIP_ANALYSIS="${SKIP_ANALYSIS:-0}"
@@ -60,7 +62,9 @@ if [[ "${SKIP_PILOT}" != "1" ]]; then
     echo "        Set FORCE_PILOT=1 to re-run the pilot."
   else
     echo "[pilot] Starting KL pilot (~42 h QPU budget with current defaults)..."
-    python scripts/run_iqm_kl_pilot.py --pilot-id "${PILOT_ID}"
+    python scripts/run_iqm_kl_pilot.py \
+      --pilot-id "${PILOT_ID}" \
+      --protocol-scope "${PROTOCOL_SCOPE}"
   fi
 else
   echo "[pilot] Skipped (SKIP_PILOT=1)."

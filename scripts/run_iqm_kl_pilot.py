@@ -22,15 +22,23 @@ from qbanknote.ansatzes import (  # noqa: E402
 from qbanknote.iqm import connect_to_iqm_backend  # noqa: E402
 from qbanknote.metrics import (  # noqa: E402
     KlPilotFallbackError,
+    build_kl_protocol_by_job,
     choose_kl_bins,
     choose_kl_iterations,
+    choose_kl_iterations_by_job,
     choose_kl_samples,
+    choose_kl_samples_by_job,
     choose_kl_shots,
+    choose_kl_shots_by_job,
+    latest_kl_shot_pilot_summary,
     compute_kl_bin_sensitivity,
     compute_kl_iteration_precision,
     compute_kl_prefix_precision,
     compute_kl_shot_stability,
+    compute_kl_shot_stability_by_job,
     kl_iteration_target_met,
+    kl_iteration_target_met_by_job,
+    nested_job_int_map_to_flat,
     read_kl_fidelities,
     read_kl_summary,
     run_iqm_kl_sweep,
@@ -50,6 +58,7 @@ DEFAULT_MAX_SAMPLES = 30
 DEFAULT_BIN_GRID = [50, 75, 100, 150, 200, 250, 300, 400]
 DEFAULT_PILOT_SAMPLES = 3
 MINUTES_PER_FIDELITY_PAIR = 4.0
+PROTOCOL_SCOPES = ("global", "per_ansatz_depth")
 
 
 def parse_args() -> argparse.Namespace:
@@ -149,6 +158,19 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip offline bin-sensitivity pilot and keep --n-bins or default 150.",
     )
+    parser.add_argument(
+        "--skip-shots",
+        action="store_true",
+        help=(
+            "Skip the shot-stability QPU stage and load existing shot_pilot artifacts "
+            "from the pilot output root (uses each job's latest n_samples)."
+        ),
+    )
+    parser.add_argument(
+        "--skip-iterations",
+        action="store_true",
+        help="Stop after the sample pilot; skip repeated iteration/drift sweeps.",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-qubits", type=int, default=5)
     parser.add_argument("--optimization-level", type=int, default=1)
@@ -159,6 +181,13 @@ def parse_args() -> argparse.Namespace:
         help="Pilot output root (default: <project>/iqm_kl_outputs/pilots/<pilot_id>)",
     )
     parser.add_argument("--pilot-id", default=None)
+    parser.add_argument(
+        "--protocol-scope",
+        choices=PROTOCOL_SCOPES,
+        default="global",
+        help="global: one shots/samples/iterations budget for all jobs; "
+        "per_ansatz_depth: independent budget per (ansatz, depth).",
+    )
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--iqm-token", default=None)
     parser.add_argument(
@@ -190,6 +219,20 @@ def _concat(frames: list[pd.DataFrame]) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
+def _load_shot_pilot_summary(output_root: Path, shot_grid: list[int]) -> pd.DataFrame:
+    frames: list[pd.DataFrame] = []
+    for shots in shot_grid:
+        run_dir = output_root / "shot_pilot" / f"shots_{shots}"
+        if not (run_dir / "iqm_kl_results.csv").exists():
+            continue
+        frame = read_kl_summary(run_dir, stage="shot_pilot")
+        if not frame.empty:
+            frame = frame.copy()
+            frame["shots"] = int(shots)
+            frames.append(frame)
+    return _concat(frames)
+
+
 def estimate_kl_pilot_budget(
     *,
     n_ansatzes: int,
@@ -200,16 +243,23 @@ def estimate_kl_pilot_budget(
     max_samples: int,
     max_iterations: int,
     drift_only: bool,
+    skip_shots: bool = False,
+    skip_iterations: bool = False,
     minutes_per_pair: float = MINUTES_PER_FIDELITY_PAIR,
 ) -> dict[str, int | float]:
     """Estimate fidelity-pair counts and wall time for each pilot stage."""
-    if drift_only:
+    if drift_only or skip_shots:
         shot_pairs = 0
-        sample_pairs = 0
     else:
         shot_pairs = len(shot_grid) * n_ansatzes * len(shot_pilot_depths) * pilot_samples
+    if drift_only:
+        sample_pairs = 0
+    else:
         sample_pairs = n_ansatzes * len(depths) * max_samples
-    iteration_pairs = max_iterations * n_ansatzes * len(depths) * max_samples
+    if skip_iterations:
+        iteration_pairs = 0
+    else:
+        iteration_pairs = max_iterations * n_ansatzes * len(depths) * max_samples
     total_pairs = shot_pairs + sample_pairs + iteration_pairs
     return {
         "shot_pairs": int(shot_pairs),
@@ -234,6 +284,9 @@ def _run_iteration_pilot(
     chosen_samples: int,
     chosen_bins: int,
     progress_callback,
+    shots_by_job=None,
+    n_samples_by_job=None,
+    per_job: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, int, bool]:
     iteration_frames: list[pd.DataFrame] = []
     chosen_iterations = 0
@@ -242,11 +295,17 @@ def _run_iteration_pilot(
     for iteration in range(1, args.max_iterations + 1):
         run_dir = output_root / "iteration_pilot" / f"iteration_{iteration}"
         if not args.quiet:
-            print(
-                f"\n[iteration pilot] iteration={iteration}, "
-                f"n_samples={chosen_samples}, shots={chosen_shots}, "
-                f"n_bins={chosen_bins} -> {run_dir}"
-            )
+            if per_job and shots_by_job and n_samples_by_job:
+                print(
+                    f"\n[iteration pilot] iteration={iteration}, "
+                    f"per-job shots/samples, n_bins={chosen_bins} -> {run_dir}"
+                )
+            else:
+                print(
+                    f"\n[iteration pilot] iteration={iteration}, "
+                    f"n_samples={chosen_samples}, shots={chosen_shots}, "
+                    f"n_bins={chosen_bins} -> {run_dir}"
+                )
         run_iqm_kl_sweep(
             backend,
             ansatz_fns=ansatz_fns,
@@ -265,10 +324,13 @@ def _run_iteration_pilot(
             resume=args.resume,
             verbose=not args.quiet,
             progress_callback=progress_callback,
+            shots_by_job=shots_by_job,
+            n_samples_by_job=n_samples_by_job,
             manifest_extra={
                 "pilot_id": pilot_id,
                 "pilot_stage": "iteration_pilot",
                 "iteration": iteration,
+                "protocol_scope": args.protocol_scope,
                 "iqm_url": args.iqm_url,
             },
         )
@@ -277,11 +339,18 @@ def _run_iteration_pilot(
         )
         iteration_summary = _concat(iteration_frames)
         chosen_iterations = iteration
-        target_met = kl_iteration_target_met(
-            iteration_summary,
-            target_half_width=args.target_iteration_half_width,
-            iterations=iteration,
-        )
+        if per_job:
+            target_met = kl_iteration_target_met_by_job(
+                iteration_summary,
+                target_half_width=args.target_iteration_half_width,
+                iterations=iteration,
+            )
+        else:
+            target_met = kl_iteration_target_met(
+                iteration_summary,
+                target_half_width=args.target_iteration_half_width,
+                iterations=iteration,
+            )
         if iteration >= args.min_iterations and target_met:
             break
 
@@ -290,7 +359,7 @@ def _run_iteration_pilot(
         iteration_summary,
         target_half_width=args.target_iteration_half_width,
     )
-    if not target_met and chosen_iterations >= args.min_iterations:
+    if not target_met and chosen_iterations >= args.min_iterations and not per_job:
         chosen_iterations = choose_kl_iterations(
             iteration_summary,
             target_half_width=args.target_iteration_half_width,
@@ -351,6 +420,8 @@ def main() -> None:
             max_samples=args.max_samples,
             max_iterations=args.max_iterations,
             drift_only=args.drift_only,
+            skip_shots=args.skip_shots,
+            skip_iterations=args.skip_iterations,
         )
         print(
             "Estimated QPU budget (MW-aligned shot pilot defaults, "
@@ -398,16 +469,28 @@ def main() -> None:
     shot_summary = pd.DataFrame()
     shot_stability = pd.DataFrame()
     shot_stability_aggregate = pd.DataFrame()
+    shot_stability_by_job = pd.DataFrame()
     sample_precision = pd.DataFrame()
     sample_precision_aggregate = pd.DataFrame()
     sample_fidelities = pd.DataFrame()
     chosen_shots = args.shots
     chosen_samples = args.samples
+    shots_by_job_nested: dict[str, dict[int, int]] | None = None
+    samples_by_job_nested: dict[str, dict[int, int]] | None = None
+    iterations_by_job_nested: dict[str, dict[int, int]] | None = None
+    shots_by_job_flat = None
+    n_samples_by_job_flat = None
+    per_job = args.protocol_scope == "per_ansatz_depth"
 
     backend = None
     progress_callback = None
 
     if args.drift_only:
+        if per_job:
+            raise SystemExit(
+                "--drift-only with --protocol-scope per_ansatz_depth is not supported; "
+                "use global scope or provide a completed protocol JSON for production."
+            )
         if chosen_shots is None or chosen_samples is None:
             raise SystemExit("--drift-only requires fixed --shots and --samples")
         if args.n_bins is not None:
@@ -429,6 +512,7 @@ def main() -> None:
             raise SystemExit("--pilot-samples must be positive")
         if not args.quiet:
             print(f"Pilot output root: {output_root}")
+            print(f"Protocol scope: {args.protocol_scope}")
             print(
                 f"Shot pilot depths={list(args.shot_pilot_depth)}, "
                 f"grid={shot_grid}, pilot_samples={args.pilot_samples}"
@@ -436,47 +520,73 @@ def main() -> None:
             print(f"Sample prefix grid={sample_grid}, max_samples={args.max_samples}")
 
         shot_frames: list[pd.DataFrame] = []
-        for shots in shot_grid:
-            run_dir = output_root / "shot_pilot" / f"shots_{shots}"
+        if args.skip_shots:
             if not args.quiet:
-                print(f"\n[shot pilot] shots={shots} -> {run_dir}")
-            run_iqm_kl_sweep(
-                backend,
-                ansatz_fns=ansatz_fns,
-                ansatz_names=list(args.ansatz),
-                depths=list(args.shot_pilot_depth),
-                n_qubits=args.num_qubits,
-                n_samples=args.pilot_samples,
-                seed=args.seed,
-                shots=shots,
-                n_bins=chosen_bins,
-                eps=args.eps,
-                optimization_level=args.optimization_level,
-                seed_transpiler=None,
-                max_circuits_per_job=args.max_circuits_per_job,
-                output_dir=run_dir,
-                resume=args.resume,
-                verbose=not args.quiet,
-                progress_callback=progress_callback,
-                manifest_extra={
-                    "pilot_id": pilot_id,
-                    "pilot_stage": "shot_pilot",
-                    "iqm_url": args.iqm_url,
-                },
-            )
-            shot_frames.append(read_kl_summary(run_dir, stage="shot_pilot"))
+                print("\n[shot pilot] skipped — loading existing artifacts")
+            shot_summary = _load_shot_pilot_summary(output_root, shot_grid)
+            if shot_summary.empty:
+                raise SystemExit(
+                    f"No shot pilot summaries found under {output_root / 'shot_pilot'}; "
+                    "complete the shot pilot or omit --skip-shots."
+                )
+            shot_summary = latest_kl_shot_pilot_summary(shot_summary)
+        else:
+            for shots in shot_grid:
+                run_dir = output_root / "shot_pilot" / f"shots_{shots}"
+                if not args.quiet:
+                    print(f"\n[shot pilot] shots={shots} -> {run_dir}")
+                run_iqm_kl_sweep(
+                    backend,
+                    ansatz_fns=ansatz_fns,
+                    ansatz_names=list(args.ansatz),
+                    depths=list(args.shot_pilot_depth),
+                    n_qubits=args.num_qubits,
+                    n_samples=args.pilot_samples,
+                    seed=args.seed,
+                    shots=shots,
+                    n_bins=chosen_bins,
+                    eps=args.eps,
+                    optimization_level=args.optimization_level,
+                    seed_transpiler=None,
+                    max_circuits_per_job=args.max_circuits_per_job,
+                    output_dir=run_dir,
+                    resume=args.resume,
+                    verbose=not args.quiet,
+                    progress_callback=progress_callback,
+                    manifest_extra={
+                        "pilot_id": pilot_id,
+                        "pilot_stage": "shot_pilot",
+                        "protocol_scope": args.protocol_scope,
+                        "iqm_url": args.iqm_url,
+                    },
+                )
+                shot_frames.append(read_kl_summary(run_dir, stage="shot_pilot"))
+            shot_summary = _concat(shot_frames)
 
-        shot_summary = _concat(shot_frames)
         shot_stability, shot_stability_aggregate = compute_kl_shot_stability(shot_summary)
-        chosen_shots = choose_kl_shots(shot_summary, tolerance=args.shot_tolerance)
-        if not args.quiet:
-            print(f"\nChosen shots: {chosen_shots}")
+        if per_job:
+            _, shot_stability_by_job = compute_kl_shot_stability_by_job(shot_summary)
+            shots_by_job_nested = choose_kl_shots_by_job(
+                shot_summary,
+                tolerance=args.shot_tolerance,
+            )
+            shots_by_job_flat = nested_job_int_map_to_flat(shots_by_job_nested)
+            chosen_shots = max(
+                value for depths in shots_by_job_nested.values() for value in depths.values()
+            )
+            if not args.quiet:
+                print(f"\nChosen shots (per job): {shots_by_job_nested}")
+                print(f"Conservative chosen_shots (max): {chosen_shots}")
+        else:
+            chosen_shots = choose_kl_shots(shot_summary, tolerance=args.shot_tolerance)
+            if not args.quiet:
+                print(f"\nChosen shots: {chosen_shots}")
 
         sample_run_dir = output_root / "sample_pilot" / f"samples_{args.max_samples}"
         if not args.quiet:
             print(
                 f"\n[sample pilot] collecting max_samples={args.max_samples}, "
-                f"shots={chosen_shots} -> {sample_run_dir}"
+                f"shots={'per-job' if per_job else chosen_shots} -> {sample_run_dir}"
             )
         run_iqm_kl_sweep(
             backend,
@@ -496,9 +606,11 @@ def main() -> None:
             resume=args.resume,
             verbose=not args.quiet,
             progress_callback=progress_callback,
+            shots_by_job=shots_by_job_flat,
             manifest_extra={
                 "pilot_id": pilot_id,
                 "pilot_stage": "sample_pilot",
+                "protocol_scope": args.protocol_scope,
                 "iqm_url": args.iqm_url,
             },
         )
@@ -514,56 +626,121 @@ def main() -> None:
             seed=args.seed,
             z_value=args.confidence_z,
         )
-        chosen_samples = choose_kl_samples(
-            sample_fidelities,
-            sample_grid=sample_grid,
-            dim=dim,
-            n_bins=chosen_bins,
-            eps=args.eps,
-            target_half_width=args.target_half_width,
-            n_bootstrap=args.bootstrap_trials,
-            seed=args.seed,
-            z_value=args.confidence_z,
-        )
-        if not args.quiet:
-            print(f"\nChosen n_samples: {chosen_samples}")
+        if per_job:
+            samples_by_job_nested = choose_kl_samples_by_job(
+                sample_fidelities,
+                sample_grid=sample_grid,
+                dim=dim,
+                n_bins=chosen_bins,
+                eps=args.eps,
+                target_half_width=args.target_half_width,
+                n_bootstrap=args.bootstrap_trials,
+                seed=args.seed,
+                z_value=args.confidence_z,
+            )
+            n_samples_by_job_flat = nested_job_int_map_to_flat(samples_by_job_nested)
+            chosen_samples = max(
+                value for depths in samples_by_job_nested.values() for value in depths.values()
+            )
+            if not args.quiet:
+                print(f"\nChosen n_samples (per job): {samples_by_job_nested}")
+                print(f"Conservative chosen_n_samples (max): {chosen_samples}")
+        else:
+            chosen_samples = choose_kl_samples(
+                sample_fidelities,
+                sample_grid=sample_grid,
+                dim=dim,
+                n_bins=chosen_bins,
+                eps=args.eps,
+                target_half_width=args.target_half_width,
+                n_bootstrap=args.bootstrap_trials,
+                seed=args.seed,
+                z_value=args.confidence_z,
+            )
+            if not args.quiet:
+                print(f"\nChosen n_samples: {chosen_samples}")
 
     assert chosen_shots is not None and chosen_samples is not None
 
-    (
-        iteration_summary,
-        iteration_precision,
-        iteration_precision_aggregate,
-        chosen_iterations,
-        iteration_target_met_flag,
-    ) = _run_iteration_pilot(
-        backend=backend,
-        ansatz_fns=ansatz_fns,
-        args=args,
-        output_root=output_root,
-        pilot_id=pilot_id,
-        chosen_shots=int(chosen_shots),
-        chosen_samples=int(chosen_samples),
-        chosen_bins=int(chosen_bins),
-        progress_callback=progress_callback,
-    )
+    if per_job:
+        assert shots_by_job_nested is not None and samples_by_job_nested is not None
+        n_samples_by_job_flat = nested_job_int_map_to_flat(samples_by_job_nested)
+    else:
+        shots_by_job_flat = None
+        n_samples_by_job_flat = None
 
-    if not args.quiet:
-        print(f"\nChosen iterations: {chosen_iterations}")
-        print(f"Iteration target met: {iteration_target_met_flag}")
+    iteration_summary = pd.DataFrame()
+    iteration_precision = pd.DataFrame()
+    iteration_precision_aggregate = pd.DataFrame()
+    chosen_iterations = int(args.min_iterations)
+    iteration_target_met_flag = False
+
+    if args.skip_iterations:
+        if not args.quiet:
+            print("\n[iteration pilot] skipped")
+        if per_job:
+            assert shots_by_job_nested is not None and samples_by_job_nested is not None
+            iterations_by_job_nested = {
+                ansatz: {depth: int(args.min_iterations) for depth in depths}
+                for ansatz, depths in samples_by_job_nested.items()
+            }
+    else:
+        (
+            iteration_summary,
+            iteration_precision,
+            iteration_precision_aggregate,
+            chosen_iterations,
+            iteration_target_met_flag,
+        ) = _run_iteration_pilot(
+            backend=backend,
+            ansatz_fns=ansatz_fns,
+            args=args,
+            output_root=output_root,
+            pilot_id=pilot_id,
+            chosen_shots=int(chosen_shots),
+            chosen_samples=int(chosen_samples),
+            chosen_bins=int(chosen_bins),
+            progress_callback=progress_callback,
+            shots_by_job=shots_by_job_flat,
+            n_samples_by_job=n_samples_by_job_flat,
+            per_job=per_job,
+        )
+
+        if per_job:
+            iterations_by_job_nested = choose_kl_iterations_by_job(
+                iteration_summary,
+                target_half_width=args.target_iteration_half_width,
+                min_iterations=args.min_iterations,
+                max_iterations=args.max_iterations,
+            )
+            chosen_iterations = max(
+                value for depths in iterations_by_job_nested.values() for value in depths.values()
+            )
+            iteration_target_met_flag = kl_iteration_target_met_by_job(
+                iteration_summary,
+                target_half_width=args.target_iteration_half_width,
+                iterations=chosen_iterations,
+            )
+
+        if not args.quiet:
+            print(f"\nChosen iterations: {chosen_iterations}")
+            print(f"Iteration target met: {iteration_target_met_flag}")
 
     iteration_stability = iteration_precision.drop(
         columns=["target_half_width", "meets_target"], errors="ignore"
     )
 
-    recommendation = {
+    recommendation: dict[str, object] = {
         "pilot_id": pilot_id,
+        "protocol_scope": args.protocol_scope,
         "iqm_url": args.iqm_url,
         "depths": list(args.depth),
         "shot_pilot_depths": list(args.shot_pilot_depth),
         "ansatzes": list(args.ansatz),
         "drift_only": bool(args.drift_only),
         "skip_bins": bool(args.skip_bins),
+        "skip_shots": bool(args.skip_shots),
+        "skip_iterations": bool(args.skip_iterations),
         "shot_grid": [] if args.drift_only else list(args.shot_grid),
         "sample_grid": [] if args.drift_only else list(args.sample_grid),
         "bin_grid": [] if args.skip_bins or args.drift_only else list(args.bin_grid),
@@ -587,7 +764,44 @@ def main() -> None:
         "iteration_target_met": bool(iteration_target_met_flag),
         "iterations_run": int(chosen_iterations),
         "output_root": str(output_root),
-        "methodology": {
+        "methodology": {},
+    }
+
+    if per_job:
+        assert (
+            shots_by_job_nested is not None
+            and samples_by_job_nested is not None
+            and iterations_by_job_nested is not None
+        )
+        per_job_fields = build_kl_protocol_by_job(
+            shots_by_job=shots_by_job_nested,
+            samples_by_job=samples_by_job_nested,
+            iterations_by_job=iterations_by_job_nested,
+            n_bins=int(chosen_bins),
+        )
+        recommendation.update(per_job_fields)
+        recommendation["methodology"] = {
+            "bin_rule": (
+                "Offline Haar draws: choose smallest n_bins whose max discretization "
+                "bias vs a fine reference histogram is <= bin_tolerance (global)."
+            ),
+            "shot_rule": (
+                "Per (ansatz, depth): choose smallest shot count whose consecutive "
+                "|Delta KL_physical| is <= shot_tolerance for that job."
+            ),
+            "sample_rule": (
+                "Collect one max_samples hardware run per job with job-specific shots; "
+                "choose smallest prefix length whose bootstrap KL half-width is <= "
+                "target_half_width independently per job."
+            ),
+            "iteration_rule": (
+                "Repeat frozen per-job protocol with identical seed; choose smallest "
+                "K >= min_iterations per job such that iteration half-width <= "
+                "target_iteration_half_width."
+            ),
+        }
+    else:
+        recommendation["methodology"] = {
             "bin_rule": (
                 "Offline Haar draws: choose smallest n_bins whose max discretization "
                 "bias vs a fine reference histogram is <= bin_tolerance."
@@ -605,26 +819,29 @@ def main() -> None:
                 "min_iterations such that max iteration half-width <= "
                 "target_iteration_half_width, otherwise use max_iterations."
             ),
-        },
+        }
+
+    protocol_frames = {
+        "bin_sensitivity": bin_sensitivity,
+        "bin_sensitivity_aggregate": bin_sensitivity_aggregate,
+        "shot_pilot_summary": shot_summary,
+        "shot_stability": shot_stability,
+        "shot_stability_aggregate": shot_stability_aggregate,
+        "sample_fidelities": sample_fidelities,
+        "sample_precision": sample_precision,
+        "sample_precision_aggregate": sample_precision_aggregate,
+        "iteration_summary": iteration_summary,
+        "iteration_stability": iteration_stability,
+        "iteration_precision": iteration_precision,
+        "iteration_precision_aggregate": iteration_precision_aggregate,
     }
+    if per_job and not shot_stability_by_job.empty:
+        protocol_frames["shot_stability_by_job"] = shot_stability_by_job
 
     recommendation_path = write_kl_protocol_artifacts(
         output_root,
         recommendation=recommendation,
-        frames={
-            "bin_sensitivity": bin_sensitivity,
-            "bin_sensitivity_aggregate": bin_sensitivity_aggregate,
-            "shot_pilot_summary": shot_summary,
-            "shot_stability": shot_stability,
-            "shot_stability_aggregate": shot_stability_aggregate,
-            "sample_fidelities": sample_fidelities,
-            "sample_precision": sample_precision,
-            "sample_precision_aggregate": sample_precision_aggregate,
-            "iteration_summary": iteration_summary,
-            "iteration_stability": iteration_stability,
-            "iteration_precision": iteration_precision,
-            "iteration_precision_aggregate": iteration_precision_aggregate,
-        },
+        frames=protocol_frames,
     )
 
     print(json.dumps(recommendation, indent=2, sort_keys=True))
