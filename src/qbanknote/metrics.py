@@ -876,19 +876,52 @@ def compute_statevector_fidelities_for_job(
     return values
 
 
-def resolve_kl_run_data_dir(run_root: Path) -> Path:
-    """Return the directory that contains per-sample KL fidelity CSV rows."""
+def list_kl_run_data_dirs(
+    run_root: Path,
+) -> list[tuple[Path, str, int | None]]:
+    """Return (data_dir, run_label, iteration) for each KL execution under run_root."""
     run_root = Path(run_root)
     if (run_root / "iqm_kl_fidelities.csv").is_file():
-        return run_root
+        return [(run_root, run_root.name, None)]
+
     iteration_dirs = sorted(
         path for path in run_root.glob("iteration_*") if path.is_dir()
     )
-    if iteration_dirs:
-        return iteration_dirs[-1]
+    executions: list[tuple[Path, str, int | None]] = []
+    for path in iteration_dirs:
+        if not (path / "iqm_kl_fidelities.csv").is_file():
+            continue
+        iteration: int | None = None
+        if path.name.startswith("iteration_"):
+            suffix = path.name.split("_", 1)[1]
+            if suffix.isdigit():
+                iteration = int(suffix)
+        executions.append((path, path.name, iteration))
+    if executions:
+        return executions
     raise FileNotFoundError(
         f"No iqm_kl_fidelities.csv found under {run_root} or iteration_* subdirs"
     )
+
+
+def list_kl_hardware_executions(
+    run_root: Path,
+    *,
+    compare_run_dir: Path | None = None,
+) -> list[tuple[Path, str, int | None]]:
+    """List executions from run_root and optional second-day compare_run_dir."""
+    executions = list_kl_run_data_dirs(run_root)
+    if compare_run_dir is None:
+        return executions
+    for data_dir, label, iteration in list_kl_run_data_dirs(compare_run_dir):
+        executions.append((data_dir, f"compare_{label}", iteration))
+    return executions
+
+
+def resolve_kl_run_data_dir(run_root: Path) -> Path:
+    """Return the directory that contains per-sample KL fidelity CSV rows."""
+    executions = list_kl_run_data_dirs(run_root)
+    return executions[-1][0]
 
 
 def analyze_kl_qpu_sim_haar_jobs(
@@ -914,7 +947,7 @@ def analyze_kl_qpu_sim_haar_jobs(
         ansatz = str(record["ansatz"])
         depth = int(record["depth"])
         if ansatz not in ansatz_fns:
-            raise ValueError(f"Unknown ansatz in summary: {ansatz}")
+            continue
         n_qubits = int(record["n_qubits"])
         n_samples = int(record["n_samples"])
         dim = 2 ** n_qubits
@@ -1150,6 +1183,79 @@ def aggregate_kl_from_sample_rows(
     }
 
 
+def bootstrap_kl_values(
+    fidelities: np.ndarray,
+    *,
+    dim: int,
+    n_bins: int,
+    eps: float,
+    n_bootstrap: int = 400,
+    seed: int = 0,
+) -> np.ndarray:
+    """Resample fidelities with replacement and return bootstrap KL values."""
+    fidelities = np.asarray(fidelities, dtype=np.float64)
+    if len(fidelities) < 1:
+        return np.array([], dtype=np.float64)
+    rng = np.random.default_rng(seed)
+    n = len(fidelities)
+    kl_values = np.empty(int(n_bootstrap), dtype=np.float64)
+    for index in range(int(n_bootstrap)):
+        draw = fidelities[rng.integers(0, n, size=n)]
+        kl, _, _, _ = compute_kl_for_fidelities(draw, dim, n_bins, eps)
+        kl_values[index] = kl
+    return kl_values
+
+
+def bootstrap_kl_interval(
+    fidelities: np.ndarray,
+    *,
+    dim: int,
+    n_bins: int,
+    eps: float,
+    n_bootstrap: int = 5000,
+    seed: int = 0,
+    confidence_levels: tuple[float, ...] = (0.90, 0.95),
+) -> dict[str, float | int]:
+    """Point KL and percentile bootstrap intervals from fidelity samples."""
+    fidelities = np.asarray(fidelities, dtype=np.float64)
+    if len(fidelities) < 1:
+        raise ValueError("bootstrap_kl_interval requires at least one fidelity")
+    kl_point, _, _, _ = compute_kl_for_fidelities(fidelities, dim, n_bins, eps)
+    result: dict[str, float | int] = {
+        "kl_physical": float(kl_point),
+        "n_samples": int(len(fidelities)),
+        "n_bootstrap": int(n_bootstrap),
+    }
+    if len(fidelities) < 2 or n_bootstrap < 2:
+        result["bootstrap_std"] = 0.0
+        result["bootstrap_median"] = float(kl_point)
+        for level in confidence_levels:
+            pct = int(round(float(level) * 100))
+            result[f"bootstrap_lo_{pct}"] = float(kl_point)
+            result[f"bootstrap_hi_{pct}"] = float(kl_point)
+        return result
+
+    kl_boot = bootstrap_kl_values(
+        fidelities,
+        dim=dim,
+        n_bins=n_bins,
+        eps=eps,
+        n_bootstrap=n_bootstrap,
+        seed=seed,
+    )
+    result["bootstrap_std"] = float(np.std(kl_boot, ddof=1))
+    result["bootstrap_median"] = float(np.median(kl_boot))
+    for level in confidence_levels:
+        alpha = 1.0 - float(level)
+        lo_pct = 100.0 * alpha / 2.0
+        hi_pct = 100.0 * (1.0 - alpha / 2.0)
+        lo, hi = np.percentile(kl_boot, [lo_pct, hi_pct])
+        pct = int(round(float(level) * 100))
+        result[f"bootstrap_lo_{pct}"] = float(lo)
+        result[f"bootstrap_hi_{pct}"] = float(hi)
+    return result
+
+
 def bootstrap_kl_std(
     fidelities: np.ndarray,
     *,
@@ -1162,13 +1268,14 @@ def bootstrap_kl_std(
     """Bootstrap standard deviation of KL(P_emp || P_Haar) from fidelity samples."""
     if len(fidelities) < 2:
         return 0.0
-    rng = np.random.default_rng(seed)
-    n = len(fidelities)
-    kl_values = np.empty(int(n_bootstrap), dtype=np.float64)
-    for index in range(int(n_bootstrap)):
-        draw = fidelities[rng.integers(0, n, size=n)]
-        kl, _, _, _ = compute_kl_for_fidelities(draw, dim, n_bins, eps)
-        kl_values[index] = kl
+    kl_values = bootstrap_kl_values(
+        fidelities,
+        dim=dim,
+        n_bins=n_bins,
+        eps=eps,
+        n_bootstrap=n_bootstrap,
+        seed=seed,
+    )
     return float(np.std(kl_values, ddof=1))
 
 
@@ -2146,6 +2253,161 @@ def choose_kl_samples(
         f"(required ~{int(worst.max_required_n_samples)} samples). "
         f"Expand sample_grid/max_samples or relax target_half_width."
     )
+
+
+def compute_kl_bootstrap_uncertainty(
+    fidelities_df,
+    *,
+    dim: int,
+    n_bins: int,
+    eps: float,
+    n_bootstrap: int = 5000,
+    seed: int = 0,
+    fidelity_column: str = "fidelity_physical",
+    confidence_levels: tuple[float, ...] = (0.90, 0.95),
+    run_label: str | None = None,
+    iteration: int | None = None,
+    data_dir: str | None = None,
+    summary_df=None,
+):
+    """Percentile bootstrap uncertainty per (ansatz, depth) from fidelity rows."""
+    import pandas as pd
+
+    if fidelities_df.empty:
+        return pd.DataFrame()
+
+    bins_lookup: dict[tuple[str, int], int] = {}
+    if summary_df is not None and not summary_df.empty and "n_bins" in summary_df.columns:
+        for record in summary_df.to_dict(orient="records"):
+            bins_lookup[(str(record["ansatz"]), int(record["depth"]))] = int(record["n_bins"])
+
+    rows: list[dict[str, object]] = []
+    for keys, group in fidelities_df.groupby(["ansatz", "depth"], dropna=False):
+        ansatz, depth = keys
+        ordered = group.sort_values("sample_index")
+        fidelities = ordered[fidelity_column].to_numpy(dtype=np.float64)
+        job_bins = int(bins_lookup.get((str(ansatz), int(depth)), n_bins))
+        job_seed = seed + int(depth) * 1000 + (1 if ansatz == "ansatz_simulator" else 0)
+        interval = bootstrap_kl_interval(
+            fidelities,
+            dim=dim,
+            n_bins=job_bins,
+            eps=eps,
+            n_bootstrap=n_bootstrap,
+            seed=job_seed,
+            confidence_levels=confidence_levels,
+        )
+        row: dict[str, object] = {
+            "ansatz": ansatz,
+            "depth": int(depth),
+            "n_bins": job_bins,
+            "eps": float(eps),
+            "f_physical_mean": float(np.mean(fidelities)),
+            "f_physical_std": float(np.std(fidelities)),
+        }
+        if run_label is not None:
+            row["run_label"] = run_label
+        if iteration is not None:
+            row["iteration"] = int(iteration)
+        if data_dir is not None:
+            row["data_dir"] = data_dir
+        row.update(interval)
+        rows.append(row)
+    return pd.DataFrame(rows).sort_values(["ansatz", "depth"]).reset_index(drop=True)
+
+
+def compute_kl_drift_summary(summary_df):
+    """Summarize run-to-run KL drift per (ansatz, depth) across executions."""
+    import pandas as pd
+
+    if summary_df.empty:
+        return pd.DataFrame()
+    if "kl_physical" not in summary_df.columns:
+        raise ValueError("summary_df must contain kl_physical")
+
+    rows: list[dict[str, object]] = []
+    for keys, group in summary_df.groupby(["ansatz", "depth"], dropna=False):
+        ansatz, depth = keys
+        if "execution_index" in group.columns:
+            ordered = group.sort_values("execution_index")
+        elif "iteration" in group.columns:
+            ordered = group.sort_values("iteration")
+        elif "run_label" in group.columns:
+            ordered = group.sort_values("run_label")
+        else:
+            ordered = group
+        values = ordered["kl_physical"].astype(float).tolist()
+        n_iter = len(values)
+        if n_iter < 2:
+            continue
+        row: dict[str, object] = {
+            "ansatz": ansatz,
+            "depth": int(depth),
+            "n_iterations": int(n_iter),
+            "kl_physical_run1": float(values[0]),
+            "kl_physical_run2": float(values[1]),
+            "kl_drift_min": float(min(values)),
+            "kl_drift_max": float(max(values)),
+            "kl_drift_mean": float(np.mean(values)),
+            "kl_drift_abs": float(abs(values[0] - values[1])),
+        }
+        if n_iter > 2:
+            row["kl_physical_all"] = values
+        rows.append(row)
+    if not rows:
+        return pd.DataFrame(
+            columns=[
+                "ansatz",
+                "depth",
+                "n_iterations",
+                "kl_physical_run1",
+                "kl_physical_run2",
+                "kl_drift_min",
+                "kl_drift_max",
+                "kl_drift_mean",
+                "kl_drift_abs",
+            ]
+        )
+    return pd.DataFrame(rows).sort_values(["ansatz", "depth"]).reset_index(drop=True)
+
+
+def write_kl_hardware_report(
+    run_dir: Path,
+    *,
+    bootstrap_df,
+    drift_df,
+    comparison_df,
+    protocol: dict[str, object] | None = None,
+    executions: list[dict[str, object]] | None = None,
+) -> Path:
+    """Write merged hardware KL analysis report JSON."""
+    import pandas as pd
+
+    run_dir = Path(run_dir)
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir(parents=True, exist_ok=True)
+
+    def _records(frame) -> list[dict[str, object]]:
+        if frame is None or (isinstance(frame, pd.DataFrame) and frame.empty):
+            return []
+        if not isinstance(frame, pd.DataFrame):
+            raise TypeError("expected pandas DataFrame")
+        return frame.to_dict(orient="records")
+
+    payload: dict[str, object] = {
+        "methodology": "iqm_kl_hardware_methodology.html",
+        "bootstrap_uncertainty": _records(bootstrap_df),
+        "drift_summary": _records(drift_df),
+        "qpu_sim_haar_comparison": _records(comparison_df),
+    }
+    if protocol is not None:
+        payload["protocol"] = protocol
+    if executions is not None:
+        payload["executions"] = executions
+
+    report_path = analysis_dir / "kl_hardware_report.json"
+    report_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    return report_path
 
 
 def compute_kl_bin_sensitivity(

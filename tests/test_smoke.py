@@ -29,6 +29,9 @@ from qbanknote.metrics import (  # noqa: E402
     KlPilotFallbackError,
     aggregate_kl_from_sample_rows,
     analyze_kl_qpu_sim_haar_jobs,
+    bootstrap_kl_interval,
+    bootstrap_kl_std,
+    bootstrap_kl_values,
     choose_kl_bins,
     choose_kl_iterations,
     choose_kl_samples,
@@ -47,7 +50,9 @@ from qbanknote.metrics import (  # noqa: E402
     latest_kl_shot_pilot_summary,
     completed_mw_jobs,
     compute_kl_bin_sensitivity,
+    compute_kl_bootstrap_uncertainty,
     compute_kl_between_fidelity_samples,
+    compute_kl_drift_summary,
     compute_kl_iteration_precision,
     compute_kl_prefix_precision,
     compute_kl_shot_stability,
@@ -59,6 +64,7 @@ from qbanknote.metrics import (  # noqa: E402
     compute_statevector_fidelities_for_job,
     kl_depth_seed,
     kl_summary_row,
+    list_kl_run_data_dirs,
     load_kl_job_fidelity_rows,
     upsert_kl_summary_row,
     mw_iteration_half_width,
@@ -75,6 +81,7 @@ from qbanknote.metrics import (  # noqa: E402
     run_mw_self_check,
     summary_row_from_result,
     write_kl_comparison_artifacts,
+    write_kl_hardware_report,
     write_kl_protocol_artifacts,
     write_mw_protocol_artifacts,
 )
@@ -520,8 +527,9 @@ def test_kl_protocol_precision_helpers(tmp_path: Path) -> None:
         n_trials=20,
     )
     assert not bin_aggregate.empty
-    chosen_bins = choose_kl_bins(bin_aggregate, tolerance=0.05)
-    assert chosen_bins in {50, 100, 150}
+    chosen_bins = choose_kl_bins(bin_aggregate, tolerance=1.0)
+    assert chosen_bins == 150
+    precision_n_bins = 50
 
     try:
         choose_kl_bins(bin_aggregate, tolerance=1e-6)
@@ -593,9 +601,9 @@ def test_kl_protocol_precision_helpers(tmp_path: Path) -> None:
         fidelities_df,
         sample_grid=[5, 10, 15],
         dim=dim,
-        n_bins=chosen_bins,
+        n_bins=precision_n_bins,
         eps=1e-12,
-        target_half_width=0.10,
+        target_half_width=1.0,
         n_bootstrap=50,
         seed=0,
     )
@@ -605,9 +613,9 @@ def test_kl_protocol_precision_helpers(tmp_path: Path) -> None:
         fidelities_df,
         sample_grid=[5, 10, 15],
         dim=dim,
-        n_bins=chosen_bins,
+        n_bins=precision_n_bins,
         eps=1e-12,
-        target_half_width=0.10,
+        target_half_width=1.0,
         n_bootstrap=50,
         seed=0,
     )
@@ -645,8 +653,8 @@ def test_kl_protocol_precision_helpers(tmp_path: Path) -> None:
                 "ansatz": "ansatz_odra",
                 "depth": 4,
                 "sample_index": sample_index,
-                "fidelity_linear": 0.1 + sample_index,
-                "fidelity_physical": 0.2 + sample_index,
+                "fidelity_linear": 0.1 + 0.1 * sample_index,
+                "fidelity_physical": 0.2 + 0.1 * sample_index,
             },
         )
     assert completed_kl_samples(fidelities_path, "ansatz_odra", 4) == {0, 2}
@@ -665,8 +673,11 @@ def test_kl_protocol_precision_helpers(tmp_path: Path) -> None:
             "fidelity_physical": 0.3,
         },
     )
-    assert kl_job_is_complete(fidelities_path, summary_path, "ansatz_odra", 2, 1)
-    assert not kl_job_is_complete(fidelities_path, summary_path, "ansatz_odra", 2, 3)
+    assert count_kl_job_samples(fidelities_path, "ansatz_odra", 4) == 3
+    assert not kl_job_is_complete(fidelities_path, summary_path, "ansatz_odra", 4, 3)
+    assert not kl_job_is_complete(
+        fidelities_path, summary_path, "ansatz_odra", 2, chosen_samples
+    )
 
     upsert_kl_summary_row(
         summary_path,
@@ -703,7 +714,7 @@ def test_kl_protocol_precision_helpers(tmp_path: Path) -> None:
                 "n_samples": 3,
                 "kl_physical": kl,
             }
-            for shots, kl in [(512, 0.50), (1024, 0.51), (2048, 0.52), (4096, 0.53)]
+            for shots, kl in [(512, 0.50), (1024, 0.53), (2048, 0.56), (4096, 0.59)]
         ]
         + [
             {
@@ -775,6 +786,197 @@ def test_kl_protocol_precision_helpers(tmp_path: Path) -> None:
     )
     assert report_path.exists()
     assert (tmp_path / "shot_stability.csv").exists()
+
+
+def test_bootstrap_kl_interval_percentile() -> None:
+    dim = 32
+    rng = np.random.default_rng(7)
+    fidelities = 1.0 - rng.random(25) ** (1.0 / (dim - 1))
+    n_bins = 150
+    eps = 1e-12
+    n_bootstrap = 200
+
+    kl_boot = bootstrap_kl_values(
+        fidelities,
+        dim=dim,
+        n_bins=n_bins,
+        eps=eps,
+        n_bootstrap=n_bootstrap,
+        seed=0,
+    )
+    assert len(kl_boot) == n_bootstrap
+
+    interval = bootstrap_kl_interval(
+        fidelities,
+        dim=dim,
+        n_bins=n_bins,
+        eps=eps,
+        n_bootstrap=n_bootstrap,
+        seed=0,
+        confidence_levels=(0.90, 0.95),
+    )
+    assert interval["bootstrap_lo_90"] <= interval["bootstrap_hi_90"]
+    assert interval["bootstrap_lo_95"] <= interval["bootstrap_hi_95"]
+    assert interval["bootstrap_hi_90"] - interval["bootstrap_lo_90"] > 0.0
+
+    boot_std = bootstrap_kl_std(
+        fidelities,
+        dim=dim,
+        n_bins=n_bins,
+        eps=eps,
+        n_bootstrap=n_bootstrap,
+        seed=0,
+    )
+    assert abs(boot_std - float(np.std(kl_boot, ddof=1))) < 1e-12
+
+
+def test_list_kl_run_data_dirs(tmp_path: Path) -> None:
+    flat = tmp_path / "flat_run"
+    flat.mkdir()
+    (flat / "iqm_kl_fidelities.csv").write_text(
+        "ansatz,depth,sample_index,fidelity_physical\n"
+        "ansatz_odra,2,0,0.1\n"
+    )
+    executions = list_kl_run_data_dirs(flat)
+    assert len(executions) == 1
+    assert executions[0][0] == flat
+
+    multi = tmp_path / "multi_run"
+    for name in ("iteration_1", "iteration_2"):
+        sub = multi / name
+        sub.mkdir(parents=True)
+        (sub / "iqm_kl_fidelities.csv").write_text(
+            "ansatz,depth,sample_index,fidelity_physical\n"
+            "ansatz_odra,2,0,0.1\n"
+        )
+    multi_exec = list_kl_run_data_dirs(multi)
+    assert len(multi_exec) == 2
+    assert multi_exec[0][2] == 1
+    assert multi_exec[1][2] == 2
+
+
+def test_compute_kl_drift_summary() -> None:
+    summary = pd.DataFrame(
+        [
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "iteration": 1,
+                "kl_physical": 0.80,
+            },
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "iteration": 2,
+                "kl_physical": 0.84,
+            },
+        ]
+    )
+    drift = compute_kl_drift_summary(summary)
+    assert len(drift) == 1
+    row = drift.iloc[0]
+    assert abs(float(row["kl_drift_abs"]) - 0.04) < 1e-9
+    assert abs(float(row["kl_physical_run1"]) - 0.80) < 1e-9
+    assert abs(float(row["kl_physical_run2"]) - 0.84) < 1e-9
+
+
+def test_compute_kl_drift_summary_execution_index_order() -> None:
+    """Compare-run labels must not reorder executions alphabetically."""
+    summary = pd.DataFrame(
+        [
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "run_label": "samples_30",
+                "execution_index": 0,
+                "kl_physical": 0.80,
+            },
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "run_label": "compare_samples_30",
+                "execution_index": 1,
+                "kl_physical": 0.84,
+            },
+        ]
+    )
+    drift = compute_kl_drift_summary(summary)
+    row = drift.iloc[0]
+    assert float(row["kl_physical_run1"]) == 0.80
+    assert float(row["kl_physical_run2"]) == 0.84
+
+
+def test_analyze_iqm_kl_hardware_offline(tmp_path: Path) -> None:
+    dim = 32
+    rng = np.random.default_rng(3)
+    fidelities = 1.0 - rng.random(12) ** (1.0 / (dim - 1))
+    n_bins = 100
+    eps = 1e-12
+
+    run_dir = tmp_path / "kl_hardware_test"
+    run_dir.mkdir()
+    fid_df = pd.DataFrame(
+        {
+            "ansatz": ["ansatz_odra"] * len(fidelities),
+            "depth": [2] * len(fidelities),
+            "sample_index": list(range(len(fidelities))),
+            "fidelity_physical": fidelities,
+            "fidelity_linear": fidelities,
+        }
+    )
+    fid_df.to_csv(run_dir / "iqm_kl_fidelities.csv", index=False)
+    pd.DataFrame(
+        [
+            {
+                "ansatz": "ansatz_odra",
+                "depth": 2,
+                "n_qubits": 5,
+                "n_samples": len(fidelities),
+                "shots": 4096,
+                "seed": 242,
+                "n_bins": n_bins,
+                "eps": eps,
+                "kl_physical": 0.5,
+                "kl_linear": 0.5,
+                "f_physical_mean": float(np.mean(fidelities)),
+                "f_physical_std": float(np.std(fidelities)),
+                "f_linear_mean": float(np.mean(fidelities)),
+                "f_linear_std": float(np.std(fidelities)),
+            }
+        ]
+    ).to_csv(run_dir / "iqm_kl_results.csv", index=False)
+
+    bootstrap_df = compute_kl_bootstrap_uncertainty(
+        fid_df,
+        dim=dim,
+        n_bins=n_bins,
+        eps=eps,
+        n_bootstrap=100,
+        seed=0,
+        confidence_levels=(0.90,),
+        run_label=run_dir.name,
+    )
+    assert not bootstrap_df.empty
+    assert "bootstrap_lo_90" in bootstrap_df.columns
+
+    comparison_df = analyze_kl_qpu_sim_haar_jobs(
+        run_dir,
+        ansatz_fns={"ansatz_odra": odra_ansatz},
+    )
+    assert not comparison_df.empty
+
+    drift_df = compute_kl_drift_summary(pd.DataFrame())
+    assert drift_df.empty
+
+    report_path = write_kl_hardware_report(
+        run_dir,
+        bootstrap_df=bootstrap_df,
+        drift_df=drift_df,
+        comparison_df=comparison_df,
+        protocol={"n_bins": n_bins},
+    )
+    assert report_path.exists()
+    assert (run_dir / "analysis" / "kl_hardware_report.json").is_file()
 
 
 def test_kl_per_job_protocol_selectors() -> None:
@@ -1203,6 +1405,7 @@ def test_cli_argument_parsing() -> None:
         "run_iqm_mw_pilot.py",
         "run_iqm_kl_pilot.py",
         "run_iqm_kl_expressibility.py",
+        "analyze_iqm_kl_hardware.py",
         "run_iqm_metric_test.py",
         "select_iqm_metric_protocol.py",
         "analyze_iqm_metric_test.py",

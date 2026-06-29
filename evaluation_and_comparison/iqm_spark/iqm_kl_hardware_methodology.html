@@ -1,0 +1,877 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KL Expressibility on IQM Spark — Hardware Methodology</title>
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['$', '$'], ['\\(', '\\)']],
+        displayMath: [['$$', '$$'], ['\\[', '\\]']]
+      },
+      svg: { fontCache: 'global' }
+    };
+  </script>
+  <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+  <style>
+    :root {
+      --fg: #111827;
+      --muted: #4b5563;
+      --border: #e5e7eb;
+      --soft: #f9fafb;
+      --blue: #2563eb;
+      --blue-soft: #eff6ff;
+      --green-soft: #ecfdf5;
+      --amber-soft: #fffbeb;
+      --red-soft: #fef2f2;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+      max-width: 1040px;
+      margin: 2rem auto;
+      padding: 0 1rem 4rem;
+      color: var(--fg);
+      background: white;
+    }
+    h1, h2, h3 {
+      line-height: 1.25;
+    }
+    h1 {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.6rem;
+      margin-bottom: 0.6rem;
+    }
+    h2 {
+      margin-top: 2.2rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.3rem;
+    }
+    h3 {
+      margin-top: 1.5rem;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 1.05rem;
+      margin-top: 0;
+    }
+    .toc {
+      background: var(--soft);
+      border: 1px solid var(--border);
+      border-radius: 0.6rem;
+      padding: 1rem 1.25rem;
+      margin: 1.5rem 0;
+    }
+    .toc a {
+      color: var(--blue);
+      text-decoration: none;
+    }
+    .note, .warning, .result {
+      border-left: 4px solid var(--blue);
+      border-radius: 0.35rem;
+      padding: 0.85rem 1rem;
+      margin: 1rem 0;
+    }
+    .note {
+      background: var(--blue-soft);
+    }
+    .warning {
+      background: var(--amber-soft);
+      border-left-color: #d97706;
+    }
+    .result {
+      background: var(--green-soft);
+      border-left-color: #059669;
+    }
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: #f3f4f6;
+    }
+    code {
+      padding: 0.1rem 0.25rem;
+      border-radius: 0.25rem;
+    }
+    pre {
+      padding: 0.9rem;
+      border-radius: 0.5rem;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 1rem 0 1.4rem;
+      font-size: 0.95rem;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.45rem 0.55rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: var(--soft);
+      font-weight: 650;
+    }
+    td.num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    caption {
+      caption-side: bottom;
+      color: var(--muted);
+      font-size: 0.9rem;
+      padding-top: 0.35rem;
+      text-align: left;
+    }
+    .small {
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+      margin: 1rem 0;
+    }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 0.6rem;
+      padding: 1rem;
+      background: white;
+    }
+    .card h3 {
+      margin-top: 0;
+      font-size: 1rem;
+    }
+    ul.compact {
+      margin: 0.4rem 0;
+      padding-left: 1.2rem;
+    }
+    .cite-block {
+      margin: 1rem 0 1.25rem;
+    }
+    .cite-label {
+      font-size: 0.82rem;
+      font-weight: 650;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    blockquote.cite {
+      margin: 0;
+      padding: 0.75rem 1rem;
+      border-left: 3px solid #9ca3af;
+      background: #fafafa;
+      color: var(--fg);
+    }
+    blockquote.cite p {
+      margin: 0 0 0.5rem;
+    }
+    blockquote.cite footer {
+      font-size: 0.88rem;
+      color: var(--muted);
+    }
+    blockquote.cite footer a {
+      color: var(--blue);
+    }
+  </style>
+</head>
+<body>
+  <h1>KL Expressibility on IQM Spark</h1>
+  <p class="subtitle">
+    Fixed-budget hardware protocol with rigorous uncertainty: percentile bootstrap on
+    fidelity pairs, optional repeat run for drift, and simulator reference on the
+    same seeds. Depths 2 and 4 only; depth 6 excluded from QPU KL.
+  </p>
+  <p class="small">
+    Koło Naukowe Axion &middot; ODRA 5 (IQM Spark) &middot;
+    Companion to <code>iqm_kl_pilot_methodology.md</code> (legacy half-width pilot) and
+    <code>iqm_mw_pilot_methodology.html</code> (Meyer&ndash;Wallach).
+  </p>
+
+  <div class="result">
+    <strong>Recommended package (rigorous + literature-aligned).</strong>
+    One QPU sweep at <strong>$N = 60$</strong> pairs per (ansatz, depth) with
+    <strong>$S = 2048$</strong> tomography shots (same wall-time budget as
+    $N = 30$ at 4096 shots) and
+    <strong>90% percentile bootstrap CI</strong> on resampled fidelities; one
+    <strong>repeat execution</strong> ($K=2$) for day-to-day stability;
+    <strong>simulator KL</strong> on the same seeds for expressibility reference.
+    Total KL QPU budget: $\approx 8\text{&ndash;}16$&nbsp;h (depths $\{2,4\}$ only).
+    <div class="cite-block" style="margin-top: 0.75rem; margin-bottom: 0;">
+      <blockquote class="cite">
+        <p>&ldquo;Lower KL divergence indicates better expressibility, meaning a better ability to explore a wider range of states in the Hilbert space.&rdquo;</p>
+        <footer>[3] Saib et al. (2023), on Sim et al.&rsquo;s Expr score (<a href="https://arxiv.org/abs/2309.06975">arXiv:2309.06975</a>).</footer>
+      </blockquote>
+    </div>
+  </div>
+
+  <div class="toc">
+    <strong>Contents</strong>
+    <ul>
+      <li><a href="#scope">Scope and design principles</a></li>
+      <li><a href="#metric">Quantity being estimated</a></li>
+      <li><a href="#fidelity">Fidelity acquisition on IQM</a></li>
+      <li><a href="#protocol">Fixed hardware protocol</a></li>
+      <li><a href="#bootstrap">Primary uncertainty: percentile bootstrap</a></li>
+      <li><a href="#repeat">Secondary uncertainty: repeat run ($K=2$)</a></li>
+      <li><a href="#simulator">Simulator reference layer</a></li>
+      <li><a href="#reporting">Reporting template</a></li>
+      <li><a href="#budget">QPU budget</a></li>
+      <li><a href="#literature">Literature alignment</a></li>
+      <li><a href="#avoid">What this protocol replaces</a></li>
+      <li><a href="#commands">Commands and artifacts</a></li>
+      <li><a href="#refs">References</a></li>
+    </ul>
+  </div>
+
+  <section id="scope">
+    <h2>Scope and design principles</h2>
+    <p>
+      This document defines the <strong>production</strong> methodology for measuring
+      KL-style expressibility on IQM Spark when both a point estimate and
+      <strong>defensible uncertainty</strong> are required, without running the
+      multi-stage half-width calibration pilot (~40&ndash;100+&nbsp;h QPU).
+    </p>
+    <div class="grid">
+      <div class="card">
+        <h3>In scope</h3>
+        <ul class="compact">
+          <li>Ansätze: <code>ansatz_odra</code>, <code>ansatz_simulator</code></li>
+          <li>Depths: <strong>2 and 4 only</strong></li>
+          <li>$n = 5$ qubits; full $3^n$ Pauli tomography per state</li>
+          <li>Hardware&ndash;hardware overlaps $F = \mathrm{Tr}(\rho_a \rho_b)$</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Out of scope</h3>
+        <ul class="compact">
+          <li>Depth 6 on QPU (classifier collapse; not used for KL budget)</li>
+          <li>Shot-grid pilot (512&hellip;8192 sweeps)</li>
+          <li>Iteration pilot tuned to $h_{\mathrm{iter}} \le 0.02$</li>
+          <li>Choosing $N$ until bootstrap half-width $\le 0.03$</li>
+        </ul>
+      </div>
+    </div>
+    <p>
+      <strong>Three uncertainty layers</strong> are reported separately (do not merge
+      into one &ldquo;95% band&rdquo;):
+    </p>
+    <ol>
+      <li><strong>Finite pair count</strong> &mdash; percentile bootstrap on $\{F_j\}$ (offline, no extra QPU).</li>
+      <li><strong>Input spread</strong> &mdash; mean and std of fidelities $\{F_j\}$ (descriptive, not a CI on KL).</li>
+      <li><strong>Day-to-day drift</strong> &mdash; difference between two identical protocol executions ($K=2$).</li>
+    </ol>
+    <div class="cite-block">
+      <div class="cite-label">Citation &mdash; separate uncertainty layers (bootstrap vs repeat-run dispersion)</div>
+      <blockquote class="cite">
+        <p>&ldquo;We use non-parametric bootstrapping with 10,000 bootstrap samples to calculate the variance of the zero noise limit result.&rdquo;</p>
+        <footer>[1] A. Ash Saki et al., &ldquo;Hypothesis Testing for Error Mitigation,&rdquo; <a href="https://arxiv.org/abs/2301.02690">arXiv:2301.02690</a> (2023).</footer>
+      </blockquote>
+      <blockquote class="cite">
+        <p>&ldquo;We repeat &lsquo;experiments&rsquo;: the entire process of state preparation and generating $N_{\mathrm{shots}}$ samples several times ($N_{\mathrm{experiments}}$). For each experiment, we compute the values of our quality of solution metrics, and then report the mean and standard deviation as above.&rdquo;</p>
+        <footer>[2] S. Marsh et al., &ldquo;Cross-Platform Benchmarking of Near-Term Quantum Optimisation Algorithms,&rdquo; <a href="https://arxiv.org/html/2504.06885v5">arXiv:2504.06885</a> (2025).</footer>
+      </blockquote>
+    </div>
+    <div class="cite-block">
+      <div class="cite-label">Citation &mdash; fixed budget instead of adaptive half-width pilot</div>
+      <blockquote class="cite">
+        <p>&ldquo;Sim et al. employed 5000 fidelity samples for four-qubit circuits to measure expressibility. This reliance on a large number of samples poses challenges due to the time and computational resources required.&rdquo;</p>
+        <footer>[3] A. Saib et al., &ldquo;Predicting Expressibility of Parameterized Quantum Circuits using Graph Neural Network,&rdquo; <a href="https://arxiv.org/abs/2309.06975">arXiv:2309.06975</a> (2023).</footer>
+      </blockquote>
+    </div>
+  </section>
+
+  <section id="metric">
+    <h2>Quantity being estimated</h2>
+    <p>
+      For fixed ansatz and circuit depth, draw independent random parameter pairs
+      $(\theta_a^{(j)}, \theta_b^{(j)})$ and prepare two states on hardware.
+      After tomography, obtain fidelities $F_j \in [0,1]$.
+      Following Sim et&nbsp;al., compare the empirical histogram of $\{F_j\}$ to the
+      Haar-random analytic fidelity density on $[0,1]$:
+    </p>
+    $$
+    p_{\mathrm{Haar}}(F) = (d-1)(1-F)^{d-2}, \qquad d = 2^n.
+    $$
+    <p>
+      Discretize $[0,1]$ into $B$ equal bins, form normalized histogram masses
+      $\hat{p}_k$ and reference masses $q_k$, stabilize empty bins with
+      $\varepsilon = 10^{-12}$, and define the <strong>plug-in expressibility score</strong>:
+    </p>
+    $$
+    \widehat{D}_{\mathrm{KL}}
+    =
+    \sum_{k=1}^{B}
+    \tilde{p}_k \ln\frac{\tilde{p}_k}{\tilde{q}_k}.
+    $$
+    <p>
+      Lower $\widehat{D}_{\mathrm{KL}}$ indicates closer agreement with Haar-random
+      state-space exploration at the tested depth. Implementation:
+      <code>compute_kl_for_fidelities</code> in <code>src/qbanknote/metrics.py</code>.
+    </p>
+    <div class="note">
+      <strong>One KL per configuration.</strong>
+      Unlike Meyer&ndash;Wallach (where each random parameter draw yields one score
+      $ \hat{Q}_j $), a single hardware run with $N$ pairs produces
+      <strong>one</strong> scalar $\widehat{D}_{\mathrm{KL}}$ from the full histogram.
+      Uncertainty over random pairs is assessed by <strong>bootstrap resampling</strong>
+      of $\{F_j\}$, not by a sample standard deviation of multiple KL values from the
+      same run.
+    </div>
+    <div class="cite-block">
+      <div class="cite-label">Citation &mdash; KL expressibility metric and Haar reference</div>
+      <blockquote class="cite">
+        <p>&ldquo;For the ensemble of Haar random states, the analytical form of the probability density function of fidelities is known: $P_{\mathrm{Haar}}(F)=(N-1)(1-F)^{N-2}$&nbsp;&hellip;&nbsp;the Kullback-Leibler (KL) divergence &hellip; between the estimated fidelity distribution and that of the Haar-distributed ensemble can be computed to quantify expressibility (&lsquo;Expr&rsquo;): $\mathrm{Expr}=D_{\mathrm{KL}}(\hat{P}_{\mathrm{PQC}}(F;\boldsymbol{\theta})\,\|\,P_{\mathrm{Haar}}(F))$.&rdquo;</p>
+        <footer>[4] S. Sim, P. D. Johnson, A. Aspuru-Guzik, &ldquo;Expressibility and entangling capability of parameterized quantum circuits,&rdquo; <a href="https://arxiv.org/abs/1905.10876">Adv. Quantum Technol. 2, 1900070 (2019)</a>.</footer>
+      </blockquote>
+      <blockquote class="cite">
+        <p>&ldquo;In practice, we can estimate the fidelity distributions &hellip; by independently sampling pairs of states (i.e. sampling pairs of parameter vectors and obtaining parameterized states) and treating the corresponding fidelities as random variables.&rdquo;</p>
+        <footer>[4] Sim et al. (2019), <a href="https://arxiv.org/abs/1905.10876">arXiv:1905.10876</a>.</footer>
+      </blockquote>
+      <blockquote class="cite">
+        <p>&ldquo;Due to a finite sample size, the probability distribution is estimated with a histogram. Therefore, we must choose a discretization of the two probability distributions in order to numerically estimate the KL divergence. By this scoring method, a PQC with a resulting fidelity distribution that corresponds to a lower KL divergence with respect to that of Haar, is a more expressible circuit.&rdquo;</p>
+        <footer>[4] Sim et al. (2019), <a href="https://arxiv.org/abs/1905.10876">arXiv:1905.10876</a>.</footer>
+      </blockquote>
+    </div>
+  </section>
+
+  <section id="fidelity">
+    <h2>Fidelity acquisition on IQM</h2>
+    <p>
+      Each fidelity pair requires full tensor-product Pauli-basis state tomography for
+      <strong>both</strong> states:
+    </p>
+    $$
+    N_{\mathrm{circuits\ per\ pair}} = 2 \times 3^n.
+    $$
+    <p>
+      For $n=5$: $2 \times 243 = 486$ circuits per pair. Reconstruct
+      $\hat{\rho}_{\mathrm{lin}}$, project to $\hat{\rho}_{\mathrm{phys}}$, then
+    </p>
+    $$
+    F_j = \mathrm{Tr}(\hat{\rho}_{a,\mathrm{phys}} \hat{\rho}_{b,\mathrm{phys}}).
+    $$
+    <p>
+      Primary input for KL analysis: column <code>fidelity_physical</code> in
+      <code>iqm_kl_fidelities.csv</code>. Tomography details match
+      <code>full_odra_fidelity.ipynb</code> and Dania.pdf Part&nbsp;V&ndash;VII.
+    </p>
+    <table>
+      <caption>Typical wall time (IQM Spark, shallow ansätze)</caption>
+      <thead>
+        <tr><th>Unit</th><th>Circuits</th><th class="num">Time</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>One state tomography</td><td>$3^n = 243$</td><td class="num">~2 min</td></tr>
+        <tr><td>One fidelity pair</td><td>$486$</td><td class="num">~4 min</td></tr>
+      </tbody>
+    </table>
+    <div class="cite-block">
+      <div class="cite-label">Citation &mdash; Pauli-basis tomography cost ($3^n$ settings)</div>
+      <blockquote class="cite">
+        <p>&ldquo;This performs measurement in the Pauli-basis resulting in $3^n$ circuits for an $n$-qubit state tomography experiment.&rdquo;</p>
+        <footer>[5] Qiskit Ignis state tomography documentation, cited in community tutorials; see <a href="https://quantumcomputing.stackexchange.com/questions/13131/how-to-do-state-tomography-when-using-sampling-in-qiskit">Quantum Computing Stack Exchange (13131)</a>.</footer>
+      </blockquote>
+      <blockquote class="cite">
+        <p>&ldquo;The number of required measurement settings scales exponentially with the number of qubits, specifically $3^n$ for Pauli measurements.&rdquo;</p>
+        <footer>[6] Quantum state tomography overview, <a href="https://entangledfuture.com/learn/quantum-state-tomography/">Entangled Future QN</a> (summarizing standard Pauli tomography scaling).</footer>
+      </blockquote>
+      <blockquote class="cite">
+        <p>&ldquo;In quantum tomography &hellip; we are given repeated copies of an unknown quantum state &hellip; and the task is to find an estimate of the density matrix of the quantum state up to an approximation error in some distance measure.&rdquo;</p>
+        <footer>[7] M. Hein et al., &ldquo;Quantum tomography,&rdquo; lecture notes, RWTH Aachen, <a href="https://publications.rwth-aachen.de/record/1033100/files/1033100.pdf">PDF</a>.</footer>
+      </blockquote>
+    </div>
+  </section>
+
+  <section id="protocol">
+    <h2>Fixed hardware protocol</h2>
+    <p>
+      All knobs are <strong>fixed before</strong> the QPU campaign (no adaptive stopping).
+      Bin count $B$ is chosen <strong>offline</strong> from Haar-random draws (Stage&nbsp;1
+      in <code>iqm_kl_pilot_methodology.md</code>); shot count may be aligned with the
+      completed Meyer&ndash;Wallach pilot.
+    </p>
+    <table>
+      <caption>Default frozen protocol</caption>
+      <thead>
+        <tr><th>Parameter</th><th>Value</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Qubits $n$</td><td>5</td><td>Classifier setting</td></tr>
+        <tr><td>Depths $L$</td><td>$\{2, 4\}$</td><td>Depth 6 excluded on QPU</td></tr>
+        <tr><td>Ansätze</td><td>Odra, Simulator</td><td>Same as main track</td></tr>
+        <tr><td>Pairs per job $N$</td><td>60</td><td>Primary stability knob; traded vs 4096 shots using pilot data</td></tr>
+        <tr><td>Shots $S$</td><td>2048</td><td>Tomography SNR; KL shot pilot showed flat 2048&ndash;4096 at $N=30$</td></tr>
+        <tr><td>Bins $B$</td><td>150&ndash;400</td><td>Offline bin sensitivity; default ref $B_{\mathrm{ref}}=400$</td></tr>
+        <tr><td>Stabilizer $\varepsilon$</td><td>$10^{-12}$</td><td>Empty-bin regularization</td></tr>
+        <tr><td>Seed</td><td>42</td><td>Same for simulator cross-check</td></tr>
+        <tr><td>Repeat runs $K$</td><td>2</td><td>Same protocol, different execution day</td></tr>
+      </tbody>
+    </table>
+    <p>
+      One <strong>full sweep</strong> executes all $(\text{ansatz}, L)$ jobs at the chosen
+      $N$ and $S$. Pair count per sweep:
+    </p>
+    $$
+    N_{\mathrm{pairs,sweep}} = |\text{ansätze}| \times |\text{depths}| \times N
+    = 2 \times 2 \times N.
+    $$
+    <div class="cite-block">
+      <div class="cite-label">Citation &mdash; fixed sample count before execution (no adaptive stopping)</div>
+      <blockquote class="cite">
+        <p>&ldquo;To compute and compare the expressibility among parameterized circuit templates in Fig.&nbsp;2, 5000 state fidelities were sampled for each circuit instance to construct its histogram, using a bin size of 75.&rdquo;</p>
+        <footer>[4] Sim et al. (2019) use a <em>fixed</em> fidelity sample count per circuit; this protocol fixes $N = 60$ on QPU at $S = 2048$ (same QPU-hours as $N = 30$, $S = 4096$) because histogram KL stabilizes mainly with pair count (<a href="https://arxiv.org/abs/1905.10876">arXiv:1905.10876</a>).</footer>
+      </blockquote>
+      <blockquote class="cite">
+        <p>&ldquo;After collecting sufficient samples of state fidelities, the Kullback-Leibler (KL) divergence &hellip; can be computed to quantify expressibility.&rdquo;</p>
+        <footer>[4] Sim et al. (2019); offline bin choice ($B$) follows histogram discretization in the same paper (<a href="https://arxiv.org/abs/1905.10876">arXiv:1905.10876</a>).</footer>
+      </blockquote>
+    </div>
+    <div class="cite-block">
+      <div class="cite-label">Citation &mdash; depth $\{2,4\}$ only on QPU (budget engineering)</div>
+      <blockquote class="cite">
+        <p>&ldquo;This reliance on a large number of samples poses challenges due to the time and computational resources required.&rdquo;</p>
+        <footer>[3] Saib et al. (2023) motivate a reduced QPU fidelity budget versus Sim et al.&rsquo;s 5000 classical samples; excluding depth&nbsp;6 from QPU KL is a <strong>project resource choice</strong> (classifier/MW tracks may still use depth&nbsp;6). <a href="https://arxiv.org/abs/2309.06975">arXiv:2309.06975</a></footer>
+      </blockquote>
+    </div>
+  </section>
+
+  <section id="bootstrap">
+    <h2>Primary uncertainty: percentile bootstrap</h2>
+    <p>
+      <strong>Question answered:</strong>
+      &ldquo;Given only $N$ hardware fidelity pairs, how much could
+      $\widehat{D}_{\mathrm{KL}}$ move if we resampled the same underlying
+      distribution?&rdquo;
+    </p>
+    <h3>Procedure</h3>
+    <ol>
+      <li>Collect $\{F_1,\ldots,F_N\}$ from one completed sweep.</li>
+      <li>Compute point estimate $\widehat{D}_{\mathrm{KL}}$ from all $N$ values.</li>
+      <li>For $b = 1,\ldots,B_{\mathrm{boot}}$ (recommended $B_{\mathrm{boot}} = 5000\text{&ndash;}10000$):
+        <ul>
+          <li>Draw $N$ indices with replacement from $\{1,\ldots,N\}$.</li>
+          <li>Form resampled set $\{F_j^*\}$ and recompute $D_{\mathrm{KL}}^{*(b)}$.</li>
+        </ul>
+      </li>
+      <li>Report <strong>percentile interval</strong> (not $\widehat{D} \pm 1.96\,\sigma_{\mathrm{boot}}$):
+        <ul>
+          <li>90% CI: $[Q_{5\%}, Q_{95\%}]$ of $\{D_{\mathrm{KL}}^{*(b)}\}$</li>
+          <li>95% CI: $[Q_{2.5\%}, Q_{97.5\%}]$</li>
+        </ul>
+      </li>
+    </ol>
+    <div class="warning">
+      <strong>Why not $1.96 \times \mathrm{std}$ (legacy pilot)?</strong>
+      The bootstrap distribution of $D_{\mathrm{KL}}$ is often <strong>skewed</strong>
+      for small $N$: resampling sparse histograms shifts KL upward. Symmetric normal
+      intervals centered on $\widehat{D}_{\mathrm{KL}}$ can understate the upper tail.
+      Percentile bootstrap matches practice in randomized benchmarking and error-mitigation
+      papers, which report asymmetric intervals from resampled data.
+    </div>
+    <div class="cite-block">
+      <div class="cite-label">Citation &mdash; percentile (quantile) bootstrap intervals</div>
+      <blockquote class="cite">
+        <p>&ldquo;The BC<sub>a</sub> procedure is a method of setting approximate confidence intervals for $\theta$ from the percentiles of the bootstrap histogram &hellip; In this case the 0.90 BC<sub>a</sub> interval is the interval between the 5th and 95th percentiles of the bootstrap replications.&rdquo;</p>
+        <footer>[8] T. J. DiCiccio and B. Efron, &ldquo;Bootstrap confidence intervals,&rdquo; <em>Statist. Sci.</em> <strong>11</strong>, 189&ndash;228 (1996); <a href="https://doi.org/10.1214/ss/1032280214">doi:10.1214/ss/1032280214</a>.</footer>
+      </blockquote>
+      <blockquote class="cite">
+        <p>&ldquo;To obtain confidence intervals on the step error &hellip; we perform bias-corrected parametric bootstrapping with 10,000 bootstrap samples &hellip; The bootstrap histograms, point estimates, and 68% bootstrapped confidence intervals are shown in Fig.&nbsp;4.&rdquo;</p>
+        <footer>[9] C. Ryan-Anderson et al., &ldquo;Optimized experiment design and analysis for fully randomized benchmarking,&rdquo; <a href="https://arxiv.org/abs/2312.15836">arXiv:2312.15836</a> (2023).</footer>
+      </blockquote>
+      <blockquote class="cite">
+        <p>&ldquo;first we resample the list of sequences with replacement, and then for each sequence we binomially resample the success and failure counts.&rdquo;</p>
+        <footer>[9] Ryan-Anderson et al. (2023) on resampling-with-replacement bootstrap replications (<a href="https://arxiv.org/abs/2312.15836">arXiv:2312.15836</a>).</footer>
+      </blockquote>
+      <blockquote class="cite">
+        <p>&ldquo;We use non-parametric bootstrapping with 10,000 bootstrap samples to calculate the variance of the zero noise limit result.&rdquo;</p>
+        <footer>[1] Ash Saki et al. (2023) on bootstrap reanalysis of hardware-derived expectation values (<a href="https://arxiv.org/abs/2301.02690">arXiv:2301.02690</a>).</footer>
+      </blockquote>
+    </div>
+    <h3>Pseudocode</h3>
+    <pre><code>fidelities = load("iqm_kl_fidelities.csv")  # fidelity_physical, N rows
+kl_hat = compute_kl(fidelities, d=32, B_bins=400, eps=1e-12)
+
+kl_boot = []
+for b in 1..B_boot:
+    draw = resample_with_replacement(fidelities, size=N)
+    kl_boot.append(compute_kl(draw, d=32, B_bins=400, eps=1e-12))
+
+ci_90 = [quantile(kl_boot, 0.05), quantile(kl_boot, 0.95)]
+ci_95 = [quantile(kl_boot, 0.025), quantile(kl_boot, 0.975)]</code></pre>
+    <p class="small">
+      Implemented in <code>bootstrap_kl_interval</code> /
+      <code>compute_kl_bootstrap_uncertainty</code> and
+      <code>scripts/analyze_iqm_kl_hardware.py</code>. Legacy pilot code uses
+      <code>bootstrap_kl_std</code> and <code>kl_confidence_half_width = 1.96 * std</code>.
+    </p>
+  </section>
+
+  <section id="repeat">
+    <h2>Secondary uncertainty: repeat run ($K=2$)</h2>
+    <p>
+      <strong>Question answered:</strong>
+      &ldquo;How much does $\widehat{D}_{\mathrm{KL}}$ change between independent
+      executions of the same protocol (hardware drift, queue, calibration)?&rdquo;
+    </p>
+    <p>
+      Run the <strong>identical</strong> frozen protocol twice (same seed, $N$, $S$,
+      $B$, ansätze, depths). Store under separate run directories, e.g.:
+    </p>
+    <pre><code>iqm_kl_outputs/kl_hardware_run1/
+iqm_kl_outputs/kl_hardware_run2/</code></pre>
+    <p>Report per (ansatz, depth):</p>
+    <ul>
+      <li>$\widehat{D}_{\mathrm{KL}}^{(1)}$, $\widehat{D}_{\mathrm{KL}}^{(2)}$</li>
+      <li>$\Delta_{\mathrm{drift}} = \bigl|\widehat{D}_{\mathrm{KL}}^{(1)} - \widehat{D}_{\mathrm{KL}}^{(2)}\bigr|$</li>
+      <li>Optional: mean $\bar{D} = \frac{1}{2}(D^{(1)}+D^{(2)})$ and sample std over $K=2$ (interpret cautiously at small $K$)</li>
+    </ul>
+    <div class="note">
+      <strong>Do not</strong> use Student-$t$ iteration half-width with $K=2$ as an
+      acceptance rule ($t_{0.975,1} \approx 12.7$). Two runs give a
+      <strong>drift range</strong>, not a tight 95% metrology interval. This matches
+      IQM/VQE papers that report $E \pm \sigma$ over a small number of executions without
+      calibrating $K$ to a half-width target.
+    </div>
+    <div class="cite-block">
+      <div class="cite-label">Citation &mdash; repeat identical protocol ($K=2$) and run-to-run dispersion</div>
+      <blockquote class="cite">
+        <p>&ldquo;We repeat &lsquo;experiments&rsquo;: the entire process of state preparation and generating $N_{\mathrm{shots}}$ samples several times ($N_{\mathrm{experiments}}$). For each experiment, we compute the values of our quality of solution metrics, and then report the mean and standard deviation as above to capture this variation in state preparation.&rdquo;</p>
+        <footer>[2] Marsh et al. (2025), <a href="https://arxiv.org/html/2504.06885v5">arXiv:2504.06885</a>.</footer>
+      </blockquote>
+      <blockquote class="cite">
+        <p>&ldquo;Run-to-run standard deviations are reported to characterize landscape ruggedness.&rdquo;</p>
+        <footer>[10] VQE ansatz benchmarking under noise (reports multiple independent hardware/sim runs); <a href="https://arxiv.org/pdf/2606.04955">arXiv:2606.04955</a> (2026).</footer>
+      </blockquote>
+      <blockquote class="cite">
+        <p>&ldquo;The circuits that have been optimised identically are then placed on the IQM Garnet quantum processor, using a resource-efficient batched protocol.&rdquo;</p>
+        <footer>[11] IQM hardware repeat-run context (Ising model VQE on IQM Garnet); <a href="https://arxiv.org/pdf/2601.17515">arXiv:2601.17515</a> (2026).</footer>
+      </blockquote>
+    </div>
+  </section>
+
+  <section id="simulator">
+    <h2>Simulator reference layer</h2>
+    <p>
+      Sim et&nbsp;al. define expressibility from <strong>classical simulation</strong>
+      with large $N$ (e.g. 5000 fidelities). Use the same random seeds and parameter
+      pairs to compute offline:
+    </p>
+    <table>
+      <thead>
+        <tr><th>Quantity</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>$D_{\mathrm{KL}}(P_{\mathrm{Sim}}\|P_{\mathrm{Haar}})$</td>
+          <td>Literature-standard expressibility ranking (ansatz comparison)</td>
+        </tr>
+        <tr>
+          <td>$D_{\mathrm{KL}}(P_{\mathrm{QPU}}\|P_{\mathrm{Haar}})$</td>
+          <td>Hardware expressibility (this protocol)</td>
+        </tr>
+        <tr>
+          <td>$D_{\mathrm{KL}}(P_{\mathrm{QPU}}\|P_{\mathrm{Sim}})$</td>
+          <td>Noise / distribution shift diagnostic</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      Offline script:
+      <code>scripts/analyze_iqm_kl_hardware.py</code> on a completed run directory.
+      No additional QPU time.
+    </p>
+    <div class="cite-block">
+      <div class="cite-label">Citation &mdash; simulator reference and ansatz ranking</div>
+      <blockquote class="cite">
+        <p>&ldquo;we propose several descriptors, including measures of expressibility and entangling capability, that can be statistically estimated from classical simulations of parameterized quantum circuits.&rdquo;</p>
+        <footer>[4] Sim et al. (2019); simulator KL($P_{\mathrm{Sim}}\|P_{\mathrm{Haar}}$) follows the same Expr definition (<a href="https://arxiv.org/abs/1905.10876">arXiv:1905.10876</a>).</footer>
+      </blockquote>
+      <blockquote class="cite">
+        <p>&ldquo;To compute and compare the expressibility among parameterized circuit templates &hellip; 5000 state fidelities were sampled for each circuit instance to construct its histogram.&rdquo;</p>
+        <footer>[4] Sim et al. (2019) classical sample size precedent; QPU uses smaller fixed $N$ with bootstrap CI (<a href="https://arxiv.org/abs/1905.10876">arXiv:1905.10876</a>).</footer>
+      </blockquote>
+      <blockquote class="cite">
+        <p>&ldquo;Lower KL divergence indicates better expressibility, meaning a better ability to explore a wider range of states in the Hilbert space.&rdquo;</p>
+        <footer>[3] Saib et al. (2023), summarizing Sim et al.&rsquo;s Expr interpretation (<a href="https://arxiv.org/abs/2309.06975">arXiv:2309.06975</a>).</footer>
+      </blockquote>
+    </div>
+  </section>
+
+  <section id="reporting">
+    <h2>Reporting template</h2>
+    <p>For each (ansatz, depth $L$), report a block like:</p>
+    <pre><code>Ansatz: ansatz_odra, depth L = 4
+  D_KL(QPU || Haar)     = 1.77
+  90% bootstrap CI      = [1.45, 2.10]   (B_boot = 10000, N = 60 pairs)
+  Fidelity sample       = 0.031 ± 0.004   (mean ± std over pairs; descriptive)
+  Repeat runs           = 1.77, 1.82      (|Δ| = 0.05)
+  D_KL(Sim || Haar)     = 0.0009          (same seeds, statevector)
+  D_KL(QPU || Sim)      = …               (offline analysis)</code></pre>
+    <table>
+      <caption>Column roles in output CSVs</caption>
+      <thead>
+        <tr><th>Field</th><th>Role</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>kl_physical</code></td><td>Point $\widehat{D}_{\mathrm{KL}}$</td></tr>
+        <tr><td><code>f_physical_mean</code>, <code>f_physical_std</code></td><td>Spread of input fidelities (not KL CI)</td></tr>
+        <tr><td><code>n_samples</code></td><td>$N$ pairs</td></tr>
+        <tr><td><code>shots</code>, <code>n_bins</code></td><td>Protocol metadata</td></tr>
+        <tr><td><code>bootstrap_lo_90</code>, <code>bootstrap_hi_90</code></td><td>Percentile bootstrap CI on KL (see bootstrap section)</td></tr>
+      </tbody>
+    </table>
+    <div class="cite-block">
+      <div class="cite-label">Citation &mdash; descriptive fidelity spread vs KL uncertainty interval</div>
+      <blockquote class="cite">
+        <p>&ldquo;Using this sampling technique, we can show that the resulting sample mean is an unbiased estimator of the population mean.&rdquo;</p>
+        <footer>[4] Sim et al. (2019) justify reporting sample moments of $\{F_j\}$; KL uncertainty is separate and comes from bootstrap replicates of the histogram KL (<a href="https://arxiv.org/abs/1905.10876">arXiv:1905.10876</a>).</footer>
+      </blockquote>
+      <blockquote class="cite">
+        <p>&ldquo;Parametric or non-parametric bias-corrected bootstrapping can be used to obtain confidence intervals for one or more parameters &hellip; the intervals obtained are useful for interpretation but should be treated as approximate.&rdquo;</p>
+        <footer>[9] Ryan-Anderson et al. (2023) on reporting bootstrap intervals alongside point estimates (<a href="https://arxiv.org/abs/2312.15836">arXiv:2312.15836</a>).</footer>
+      </blockquote>
+    </div>
+  </section>
+
+  <section id="budget">
+    <h2>QPU budget</h2>
+    <p>
+      With depths $\{2,4\}$ only and ~4&nbsp;min per pair:
+      $ \text{hours} \approx N_{\mathrm{pairs,sweep}} / 15 $.
+    </p>
+    <table>
+      <caption>Wall-time estimates (2 ansätze &times; 2 depths; time $\propto N \times S$)</caption>
+      <thead>
+        <tr><th>Configuration</th><th class="num">Pairs</th><th class="num">QPU time</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>One sweep, $N=60$, $S=2048$</td><td class="num">240</td><td class="num">~8 h</td></tr>
+        <tr><td>Two sweeps ($K=2$), $N=60$, $S=2048$</td><td class="num">480</td><td class="num">~16 h</td></tr>
+        <tr><td><span class="small">Previous default: $N=30$, $S=4096$, $K=2$</span></td><td class="num">240</td><td class="num">~16 h</td></tr>
+      </tbody>
+    </table>
+    <p>
+      Bootstrap analysis: seconds per job on a laptop (zero QPU).
+      Remaining ~80&nbsp;h budget: Meyer&ndash;Wallach, classifier evaluation, retries.
+    </p>
+    <div class="cite-block">
+      <div class="cite-label">Citation &mdash; tomography-dominated QPU cost</div>
+      <blockquote class="cite">
+        <p>&ldquo;Caveat: as state tomography requires $3^n$ circuits, you will need probably to find a method of batch processing of these circuits if they exceed the job circuit limit of your real device.&rdquo;</p>
+        <footer>[5] Qiskit tomography scaling note (Pauli basis, $3^n$ circuits per $n$-qubit state); each KL pair needs tomography of <em>two</em> states (<a href="https://quantumcomputing.stackexchange.com/questions/13131">QCSE 13131</a>).</footer>
+      </blockquote>
+      <blockquote class="cite">
+        <p>&ldquo;This generation of quantum machines are expected to support 50&ndash;100 qubits and around $10^3$ gate operations.&rdquo;</p>
+        <footer>[4] Sim et al. (2019), citing J. Preskill, &ldquo;Quantum Computing in the NISQ era and beyond,&rdquo; <em>Quantum</em> <strong>2</strong>, 79 (2018); motivates fixed wall-time budgets (<a href="https://arxiv.org/abs/1905.10876">arXiv:1905.10876</a>).</footer>
+      </blockquote>
+    </div>
+  </section>
+
+  <section id="literature">
+    <h2>Literature alignment</h2>
+    <p class="small">Each row links to a primary source with a confirming quotation in the section above or below.</p>
+    <table>
+      <thead>
+        <tr><th>Element</th><th>This protocol</th><th>Key source &amp; quote anchor</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Expressibility definition</td>
+          <td>KL vs Haar on fidelity histogram</td>
+          <td>[4] &ldquo;$\mathrm{Expr}=D_{\mathrm{KL}}(\hat{P}_{\mathrm{PQC}}\,\|\,P_{\mathrm{Haar}})$&rdquo;</td>
+        </tr>
+        <tr>
+          <td>Ansatz ranking</td>
+          <td>Simulator KL, large-$N$ or existing sim table</td>
+          <td>[4] &ldquo;statistically estimated from classical simulations&rdquo;</td>
+        </tr>
+        <tr>
+          <td>Finite-$N$ uncertainty on QPU</td>
+          <td>Percentile bootstrap on $\{F_j\}$</td>
+          <td>[8] &ldquo;interval between the 5th and 95th percentiles of the bootstrap replications&rdquo;</td>
+        </tr>
+        <tr>
+          <td>Drift</td>
+          <td>$K=2$ identical protocol</td>
+          <td>[2] &ldquo;report the mean and standard deviation&rdquo; over repeated experiments</td>
+        </tr>
+        <tr>
+          <td>Tomography input</td>
+          <td>$3^n$ Pauli settings per state</td>
+          <td>[5] &ldquo;$3^n$ circuits for an $n$-qubit state tomography experiment&rdquo;</td>
+        </tr>
+        <tr>
+          <td>Deployment claim</td>
+          <td>Classifier + MW (separate track)</td>
+          <td>Project evaluation track; not part of Sim et al. Expr definition</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="avoid">
+    <h2>What this protocol replaces</h2>
+    <div class="warning">
+      The legacy <code>run_iqm_kl_pilot.py</code> pipeline chooses $N$, $K$, and shots
+      by requiring bootstrap / Student-$t$ <strong>95% half-widths</strong> below fixed
+      targets ($h \le 0.03$, $h_{\mathrm{iter}} \le 0.02$). That is metrology-style
+      experimental design, not the expressibility literature standard, and typically
+      requires ~40&ndash;100+&nbsp;h QPU for tomography-based KL.
+    </div>
+    <table>
+      <thead>
+        <tr><th>Legacy approach</th><th>Replacement in this document</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Shot grid pilot (5 levels)</td><td>Fixed $S=2048$ (pair count prioritized)</td></tr>
+        <tr><td>Sample pilot until $h_N \le 0.03$</td><td>Fixed $N$ + percentile bootstrap CI</td></tr>
+        <tr><td>Iteration pilot $K=4$, $h_{\mathrm{iter}} \le 0.02$</td><td>$K=2$ drift range</td></tr>
+        <tr><td>$\widehat{D} \pm 1.96\,\sigma_{\mathrm{boot}}$</td><td>$[Q_{5\%}, Q_{95\%}]$ of bootstrap KL values</td></tr>
+        <tr><td>Depth 6 on QPU</td><td>Excluded</td></tr>
+      </tbody>
+    </table>
+    <div class="cite-block">
+      <div class="cite-label">Citation &mdash; why not adaptive half-width pilots</div>
+      <blockquote class="cite">
+        <p>&ldquo;Parametric or non-parametric bias-corrected bootstrapping can be used to obtain confidence intervals for one or more parameters &hellip; at moderate confidence levels, the intervals obtained are useful for interpretation but should be treated as approximate.&rdquo;</p>
+        <footer>[9] Supports reporting bootstrap CIs without treating them as metrology acceptance thresholds requiring iterative QPU calibration (<a href="https://arxiv.org/abs/2312.15836">arXiv:2312.15836</a>).</footer>
+      </blockquote>
+    </div>
+  </section>
+
+  <section id="commands">
+    <h2>Commands and artifacts</h2>
+    <h3>1. Offline bin choice (no QPU)</h3>
+    <pre><code>python scripts/run_iqm_kl_pilot.py \
+  --skip-shots --skip-iterations \
+  --max-samples 30 --pilot-id kl_bins_only</code></pre>
+    <p class="small">Or reuse bin sensitivity from a prior offline stage; read <code>bin_sensitivity_aggregate.csv</code>.</p>
+
+    <h3>2. Primary hardware sweep (single run-id, K=2 iterations)</h3>
+    <pre><code>export IQM_TOKEN="..."
+bash scripts/run_iqm_kl_hardware_study.sh</code></pre>
+    <p class="small">Or invoke the expressibility runner directly (writes
+    <code>iteration_1/</code> and <code>iteration_2/</code> under one run-id):</p>
+    <pre><code>python scripts/run_iqm_kl_expressibility.py \
+  --run-id kl_hardware \
+  --depth 2 4 \
+  --samples 60 \
+  --shots 2048 \
+  --n-bins 400 \
+  --seed 42 \
+  --iterations 2 \
+  --skip-iteration-precision</code></pre>
+
+    <h3>3. Repeat sweep (run 2, day-to-day drift)</h3>
+    <p class="small">Either use <code>--iterations 2</code> above, or run a second day
+    with a separate run-id and pass <code>--compare-run-dir</code> to analysis (see below).</p>
+    <pre><code>SKIP_QPU=1 SKIP_ANALYSIS=0 \
+  RUN_ID=kl_hardware_day2 ITERATIONS=1 \
+  bash scripts/run_iqm_kl_hardware_study.sh</code></pre>
+
+    <h3>4. Offline analysis</h3>
+    <pre><code>python scripts/analyze_iqm_kl_hardware.py \
+  --run-dir evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware \
+  --protocol-json evaluation_and_comparison/iqm_spark/kl_hardware_protocol.json
+
+# Day-to-day drift (two separate run-ids):
+python scripts/analyze_iqm_kl_hardware.py \
+  --run-dir evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_run1 \
+  --compare-run-dir evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_run2 \
+  --protocol-json evaluation_and_comparison/iqm_spark/kl_hardware_protocol.json</code></pre>
+    <p class="small">Bootstrap percentile CIs use
+    <code>bootstrap_kl_interval</code> / <code>compute_kl_bootstrap_uncertainty</code>
+    in <code>src/qbanknote/metrics.py</code> (resampling
+    <code>iqm_kl_fidelities.csv</code> per job). Legacy half-width analysis remains in
+    <code>scripts/analyze_iqm_kl_expressibility.py</code>.</p>
+
+    <h3>Artifacts</h3>
+    <pre><code>evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware*/
+  iqm_kl_results.csv          # kl_physical, f_physical_mean/std, n_samples, …
+  iqm_kl_fidelities.csv       # per-pair F_j (bootstrap input)
+  iteration_1/ … iteration_2/ # when --iterations 2
+  analysis/
+    kl_bootstrap_uncertainty.csv
+    kl_drift_summary.csv
+    kl_qpu_sim_haar_comparison.csv
+    kl_hardware_report.json
+  run_manifest.json           # shots, seed, total tomography circuits</code></pre>
+  </section>
+
+  <section id="refs">
+    <h2>References</h2>
+    <ol>
+      <li>
+        A. Ash Saki, A. Katabarwa, S. Resch, G. Umbrarescu,
+        &ldquo;Hypothesis Testing for Error Mitigation: How to Evaluate Error Mitigation,&rdquo;
+        <a href="https://arxiv.org/abs/2301.02690">arXiv:2301.02690</a> (2023).
+      </li>
+      <li>
+        S. Marsh, J. G. Smith, et al.,
+        &ldquo;Cross-Platform Benchmarking of Near-Term Quantum Optimisation Algorithms,&rdquo;
+        <a href="https://arxiv.org/html/2504.06885v5">arXiv:2504.06885</a> (2025).
+      </li>
+      <li>
+        A. Saib, A. Katabarwa, et al.,
+        &ldquo;Predicting Expressibility of Parameterized Quantum Circuits using Graph Neural Network,&rdquo;
+        <a href="https://arxiv.org/abs/2309.06975">arXiv:2309.06975</a> (2023).
+      </li>
+      <li>
+        S. Sim, P. D. Johnson, A. Aspuru-Guzik,
+        &ldquo;Expressibility and entangling capability of parameterized quantum circuits for hybrid quantum-classical algorithms,&rdquo;
+        <em>Adv. Quantum Technol.</em> <strong>2</strong>, 1900070 (2019);
+        <a href="https://arxiv.org/abs/1905.10876">arXiv:1905.10876</a>.
+      </li>
+      <li>
+        Qiskit Ignis state tomography (Pauli basis),
+        via community documentation citing
+        <a href="https://quantumcomputing.stackexchange.com/questions/13131/how-to-do-state-tomography-when-using-sampling-in-qiskit">Quantum Computing Stack Exchange 13131</a>.
+      </li>
+      <li>
+        &ldquo;Quantum State Tomography: Measuring the Unmeasurable,&rdquo;
+        <a href="https://entangledfuture.com/learn/quantum-state-tomography/">Entangled Future QN</a>
+        (Pauli $3^n$ scaling summary).
+      </li>
+      <li>
+        M. Hein et al., &ldquo;Quantum tomography,&rdquo; RWTH Aachen lecture notes,
+        <a href="https://publications.rwth-aachen.de/record/1033100/files/1033100.pdf">PDF</a>.
+      </li>
+      <li>
+        T. J. DiCiccio and B. Efron,
+        &ldquo;Bootstrap confidence intervals,&rdquo;
+        <em>Statist. Sci.</em> <strong>11</strong>, 189&ndash;228 (1996);
+        <a href="https://doi.org/10.1214/ss/1032280214">doi:10.1214/ss/1032280214</a>.
+      </li>
+      <li>
+        C. Ryan-Anderson, R. Blume-Kohout, et al.,
+        &ldquo;Optimized experiment design and analysis for fully randomized benchmarking,&rdquo;
+        <a href="https://arxiv.org/abs/2312.15836">arXiv:2312.15836</a> (2023).
+      </li>
+      <li>
+        &ldquo;Expressibility, Noise, and Error Mitigation in VQE Ansatz Selection,&rdquo;
+        <a href="https://arxiv.org/pdf/2606.04955">arXiv:2606.04955</a> (2026).
+      </li>
+      <li>
+        &ldquo;Quantum Phase Transitions in the Transverse-Field Ising Model &hellip; on IQM Garnet,&rdquo;
+        <a href="https://arxiv.org/pdf/2601.17515">arXiv:2601.17515</a> (2026).
+      </li>
+      <li>
+        Project artifacts:
+        <code>iqm_kl_expressibility.ipynb</code>,
+        <code>full_odra_fidelity.ipynb</code> (tomography),
+        <code>Dania.pdf</code> (internal methodology insert),
+        <code>kl_hardware_protocol.json</code>.
+      </li>
+    </ol>
+  </section>
+
+  <p class="small" style="margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 1rem;">
+    Document: <code>evaluation_and_comparison/iqm_spark/iqm_kl_hardware_methodology.html</code>
+  </p>
+</body>
+</html>

@@ -19,6 +19,7 @@ from qbanknote.ansatzes import (  # noqa: E402
 )
 from qbanknote.iqm import connect_to_iqm_backend  # noqa: E402
 from qbanknote.metrics import (  # noqa: E402
+    compute_kl_drift_summary,
     compute_kl_iteration_precision,
     estimate_wall_time_minutes,
     protocol_by_job_to_flat_maps,
@@ -55,6 +56,11 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.02,
         help="Target 95%% half-width used when writing iteration precision artifacts.",
+    )
+    parser.add_argument(
+        "--skip-iteration-precision",
+        action="store_true",
+        help="Skip Student-t iteration precision artifacts (hardware methodology runs).",
     )
     parser.add_argument(
         "--protocol-json",
@@ -206,28 +212,41 @@ def main() -> None:
         import pandas as pd
 
         iteration_summary = pd.concat(iteration_frames, ignore_index=True)
-        iteration_precision, iteration_precision_aggregate = compute_kl_iteration_precision(
-            iteration_summary,
-            target_half_width=args.target_iteration_half_width,
-        )
-        write_kl_protocol_artifacts(
-            output_root,
-            recommendation={
-                "run_id": run_id,
-                "iterations": args.iterations,
-                "target_iteration_half_width": args.target_iteration_half_width,
-                "shots": args.shots,
-                "n_samples": args.samples,
-                "n_bins": args.n_bins,
-                "eps": args.eps,
-                "protocol_json": str(args.protocol_json) if args.protocol_json else None,
-            },
-            frames={
-                "iteration_summary": iteration_summary,
-                "iteration_precision": iteration_precision,
-                "iteration_precision_aggregate": iteration_precision_aggregate,
-            },
-        )
+        if "execution_index" not in iteration_summary.columns:
+            iteration_summary = iteration_summary.copy()
+            iteration_summary["execution_index"] = iteration_summary["iteration"]
+        drift_summary = compute_kl_drift_summary(iteration_summary)
+        if not drift_summary.empty:
+            drift_path = output_root / "kl_drift_summary.csv"
+            drift_summary.to_csv(drift_path, index=False)
+            if not args.quiet:
+                print(f"Wrote drift summary: {drift_path}")
+
+        if args.skip_iteration_precision:
+            iteration_summary.to_csv(output_root / "iteration_summary.csv", index=False)
+        else:
+            iteration_precision, iteration_precision_aggregate = compute_kl_iteration_precision(
+                iteration_summary,
+                target_half_width=args.target_iteration_half_width,
+            )
+            write_kl_protocol_artifacts(
+                output_root,
+                recommendation={
+                    "run_id": run_id,
+                    "iterations": args.iterations,
+                    "target_iteration_half_width": args.target_iteration_half_width,
+                    "shots": args.shots,
+                    "n_samples": args.samples,
+                    "n_bins": args.n_bins,
+                    "eps": args.eps,
+                    "protocol_json": str(args.protocol_json) if args.protocol_json else None,
+                },
+                frames={
+                    "iteration_summary": iteration_summary,
+                    "iteration_precision": iteration_precision,
+                    "iteration_precision_aggregate": iteration_precision_aggregate,
+                },
+            )
 
 
 if __name__ == "__main__":

@@ -1,5 +1,9 @@
 # KL Expressibility Pilot Methodology
 
+> **See also:** For production QPU KL runs with a fixed budget (no half-width pilot),
+> use [`iqm_kl_hardware_methodology.html`](iqm_kl_hardware_methodology.html) and
+> `scripts/run_iqm_kl_hardware_study.sh` / `scripts/analyze_iqm_kl_hardware.py`.
+
 This document explains the pilot protocol used to choose the hardware and analysis
 budget for the KL expressibility workflow on IQM Spark:
 
