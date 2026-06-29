@@ -77,6 +77,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--hardware-retries", type=int, default=6)
+    parser.add_argument("--retry-wait-seconds", type=float, default=60.0)
+    parser.add_argument("--retry-max-wait-seconds", type=float, default=600.0)
     parser.add_argument("--iqm-token", default=None)
     parser.add_argument(
         "--iqm-url",
@@ -185,6 +188,10 @@ def main() -> None:
                 "iqm_url": args.iqm_url,
                 "protocol_json": str(args.protocol_json) if args.protocol_json else None,
             },
+            hardware_retries=args.hardware_retries,
+            retry_wait_seconds_initial=args.retry_wait_seconds,
+            retry_wait_seconds_max=args.retry_max_wait_seconds,
+            show_sample_progress=not args.quiet,
         )
         if args.iterations > 1:
             iteration_frames.append(read_kl_summary(run_dir, iteration=iteration))

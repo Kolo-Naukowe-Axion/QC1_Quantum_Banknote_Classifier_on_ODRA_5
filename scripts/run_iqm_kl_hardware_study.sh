@@ -6,6 +6,9 @@
 #   export IQM_TOKEN="..."
 #   ./scripts/run_iqm_kl_hardware_study.sh
 #
+# Resume after interruption (default; per-sample CSV cache):
+#   ./scripts/run_iqm_kl_hardware_study.sh
+#
 # Second day on a separate run-id:
 #   RUN_ID=kl_hardware_day2 ITERATIONS=1 SKIP_BINS=1 ./scripts/run_iqm_kl_hardware_study.sh
 #   COMPARE_RUN_DIR=evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_day2 \
@@ -19,6 +22,9 @@
 #   N_BINS=400
 #   SEED=42
 #   ITERATIONS=2
+#   HARDWARE_RETRIES=6
+#   RETRY_WAIT_SECONDS=60
+#   RETRY_MAX_WAIT_SECONDS=600
 #   COMPARE_RUN_DIR=...   (optional second run for drift analysis)
 #   SKIP_BINS=0|1
 #   SKIP_QPU=0|1
@@ -29,6 +35,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+if command -v uv >/dev/null 2>&1; then
+  PYTHON=(uv run python)
+else
+  echo "WARNING: uv not found; falling back to python3" >&2
+  PYTHON=(python3)
+fi
+
 RUN_ID="${RUN_ID:-kl_hardware}"
 DEPTHS="${DEPTHS:-2 4}"
 SAMPLES="${SAMPLES:-60}"
@@ -36,6 +49,9 @@ SHOTS="${SHOTS:-2048}"
 N_BINS="${N_BINS:-400}"
 SEED="${SEED:-42}"
 ITERATIONS="${ITERATIONS:-2}"
+HARDWARE_RETRIES="${HARDWARE_RETRIES:-6}"
+RETRY_WAIT_SECONDS="${RETRY_WAIT_SECONDS:-60}"
+RETRY_MAX_WAIT_SECONDS="${RETRY_MAX_WAIT_SECONDS:-600}"
 SKIP_BINS="${SKIP_BINS:-1}"
 SKIP_QPU="${SKIP_QPU:-0}"
 SKIP_ANALYSIS="${SKIP_ANALYSIS:-0}"
@@ -49,15 +65,17 @@ DEPTH_ARR=(${DEPTHS})
 N_ANSATZES=2
 N_DEPTHS=${#DEPTH_ARR[@]}
 PAIRS=$((N_ANSATZES * N_DEPTHS * SAMPLES * ITERATIONS))
-EST_HOURS=$(python3 -c "print(f'{$PAIRS * $SHOTS / 4096 / 15:.1f}')")
+EST_HOURS=$("${PYTHON[@]}" -c "print(f'{$PAIRS * $SHOTS / 4096 / 15:.1f}')")
 
 echo "=== KL hardware study (fixed budget) ==="
+echo "Python:       ${PYTHON[*]}"
 echo "Run ID:       ${RUN_ID}"
 echo "Run output:   ${RUN_DIR}"
 echo "Depths:       ${DEPTHS}"
 echo "Samples/job:  ${SAMPLES}"
 echo "Shots:        ${SHOTS}"
 echo "Iterations:   ${ITERATIONS}"
+echo "Retries:      ${HARDWARE_RETRIES} (wait ${RETRY_WAIT_SECONDS}s, max ${RETRY_MAX_WAIT_SECONDS}s)"
 echo "Est. pairs:   ${PAIRS}  (~${EST_HOURS} h QPU @ ~4 min/pair @ 4096 shots, scaled by S)"
 echo
 
@@ -68,7 +86,7 @@ fi
 
 if [[ "${SKIP_BINS}" != "1" ]]; then
   echo "[bins] Offline bin sensitivity (no QPU)..."
-  N_BINS="$(python3 - <<'PY'
+  N_BINS="$("${PYTHON[@]}" - <<'PY'
 from pathlib import Path
 import sys
 
@@ -94,9 +112,9 @@ else
 fi
 
 if [[ "${SKIP_QPU}" != "1" ]]; then
-  echo "[qpu] Starting hardware sweep..."
+  echo "[qpu] Starting hardware sweep (resume + per-sample cache enabled)..."
   # shellcheck disable=SC2206
-  python3 scripts/run_iqm_kl_expressibility.py \
+  "${PYTHON[@]}" scripts/run_iqm_kl_expressibility.py \
     --run-id "${RUN_ID}" \
     --depth ${DEPTH_ARR[@]} \
     --samples "${SAMPLES}" \
@@ -104,7 +122,11 @@ if [[ "${SKIP_QPU}" != "1" ]]; then
     --n-bins "${N_BINS}" \
     --seed "${SEED}" \
     --iterations "${ITERATIONS}" \
-    --skip-iteration-precision
+    --skip-iteration-precision \
+    --resume \
+    --hardware-retries "${HARDWARE_RETRIES}" \
+    --retry-wait-seconds "${RETRY_WAIT_SECONDS}" \
+    --retry-max-wait-seconds "${RETRY_MAX_WAIT_SECONDS}"
 else
   echo "[qpu] Skipped (SKIP_QPU=1)."
 fi
@@ -121,7 +143,7 @@ if [[ "${SKIP_ANALYSIS}" != "1" ]]; then
   if [[ -n "${COMPARE_RUN_DIR}" ]]; then
     ANALYZE_ARGS+=(--compare-run-dir "${COMPARE_RUN_DIR}")
   fi
-  python3 scripts/analyze_iqm_kl_hardware.py "${ANALYZE_ARGS[@]}"
+  "${PYTHON[@]}" scripts/analyze_iqm_kl_hardware.py "${ANALYZE_ARGS[@]}"
 else
   echo "[analysis] Skipped (SKIP_ANALYSIS=1)."
 fi

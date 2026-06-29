@@ -1723,6 +1723,7 @@ dependencies = [
     { name = "qiskit-machine-learning" },
     { name = "scikit-learn" },
     { name = "torch" },
+    { name = "tqdm" },
     { name = "ucimlrepo" },
 ]
 
@@ -1745,6 +1746,7 @@ requires-dist = [
     { name = "qiskit-machine-learning", specifier = ">=0.9,<0.10" },
     { name = "scikit-learn" },
     { name = "torch" },
+    { name = "tqdm" },
     { name = "ucimlrepo" },
 ]
 provides-extras = ["dev"]
