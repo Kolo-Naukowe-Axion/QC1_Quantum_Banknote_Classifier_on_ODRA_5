@@ -6,6 +6,10 @@
 #   export IQM_TOKEN="..."
 #   ./scripts/run_iqm_kl_hardware_study.sh
 #
+# Windows (PowerShell, no WSL/Git Bash required):
+#   $env:IQM_TOKEN = "..."
+#   .\scripts\run_iqm_kl_hardware_study.ps1
+#
 # Resume after interruption (default; per-sample CSV cache):
 #   ./scripts/run_iqm_kl_hardware_study.sh
 #

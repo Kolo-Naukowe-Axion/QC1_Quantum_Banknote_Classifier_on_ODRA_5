@@ -2363,17 +2363,12 @@ def compute_kl_bootstrap_uncertainty(
     if fidelities_df.empty:
         return pd.DataFrame()
 
-    bins_lookup: dict[tuple[str, int], int] = {}
-    if summary_df is not None and not summary_df.empty and "n_bins" in summary_df.columns:
-        for record in summary_df.to_dict(orient="records"):
-            bins_lookup[(str(record["ansatz"]), int(record["depth"]))] = int(record["n_bins"])
-
     rows: list[dict[str, object]] = []
     for keys, group in fidelities_df.groupby(["ansatz", "depth"], dropna=False):
         ansatz, depth = keys
         ordered = group.sort_values("sample_index")
         fidelities = ordered[fidelity_column].to_numpy(dtype=np.float64)
-        job_bins = int(bins_lookup.get((str(ansatz), int(depth)), n_bins))
+        job_bins = int(n_bins)
         job_seed = seed + int(depth) * 1000 + (1 if ansatz == "ansatz_simulator" else 0)
         interval = bootstrap_kl_interval(
             fidelities,
@@ -2399,6 +2394,86 @@ def compute_kl_bootstrap_uncertainty(
         if data_dir is not None:
             row["data_dir"] = data_dir
         row.update(interval)
+        rows.append(row)
+    return pd.DataFrame(rows).sort_values(["ansatz", "depth"]).reset_index(drop=True)
+
+
+def compute_kl_bootstrap_qpu_sim_uncertainty(
+    fidelities_df,
+    *,
+    ansatz_fns: dict[str, Callable[[int, int], QuantumCircuit]],
+    n_bins: int,
+    eps: float,
+    n_bootstrap: int = 5000,
+    seed: int = 0,
+    base_seed: int = 42,
+    fidelity_column: str = "fidelity_physical",
+    confidence_levels: tuple[float, ...] = (0.90, 0.95),
+    run_label: str | None = None,
+    iteration: int | None = None,
+    data_dir: str | None = None,
+):
+    """Paired bootstrap uncertainty for D_KL(P_QPU || P_Sim) per (ansatz, depth)."""
+    import pandas as pd
+
+    if fidelities_df.empty:
+        return pd.DataFrame()
+
+    rows: list[dict[str, object]] = []
+    for keys, group in fidelities_df.groupby(["ansatz", "depth"], dropna=False):
+        ansatz, depth = keys
+        if str(ansatz) not in ansatz_fns:
+            continue
+        ordered = group.sort_values("sample_index")
+        f_qpu = ordered[fidelity_column].to_numpy(dtype=np.float64)
+        depth_seed = kl_depth_seed(base_seed, int(depth), str(ansatz))
+        f_sim = compute_statevector_fidelities_for_job(
+            ansatz_fns[str(ansatz)],
+            n_qubits=int(ordered.iloc[0]["n_qubits"]) if "n_qubits" in ordered.columns else 5,
+            depth=int(depth),
+            n_samples=len(f_qpu),
+            seed=depth_seed,
+        )
+        job_seed = seed + int(depth) * 1000 + (1 if ansatz == "ansatz_simulator" else 0)
+        rng = np.random.default_rng(job_seed)
+        n = len(f_qpu)
+        kl_boot = np.empty(int(n_bootstrap), dtype=np.float64)
+        for index in range(int(n_bootstrap)):
+            draw = rng.integers(0, n, size=n)
+            kl_boot[index] = compute_kl_between_fidelity_samples(
+                f_qpu[draw],
+                f_sim[draw],
+                n_bins=int(n_bins),
+                eps=eps,
+            )
+        kl_point = compute_kl_between_fidelity_samples(
+            f_qpu,
+            f_sim,
+            n_bins=int(n_bins),
+            eps=eps,
+        )
+        row: dict[str, object] = {
+            "ansatz": ansatz,
+            "depth": int(depth),
+            "n_bins": int(n_bins),
+            "kl_qpu_sim": float(kl_point),
+            "n_samples": int(n),
+            "n_bootstrap": int(n_bootstrap),
+            "bootstrap_qpu_sim_std": float(np.std(kl_boot, ddof=1)) if n >= 2 else 0.0,
+            "bootstrap_qpu_sim_median": float(np.median(kl_boot)),
+        }
+        if run_label is not None:
+            row["run_label"] = run_label
+        if iteration is not None:
+            row["iteration"] = int(iteration)
+        if data_dir is not None:
+            row["data_dir"] = data_dir
+        for level in confidence_levels:
+            alpha = 1.0 - float(level)
+            lo, hi = np.percentile(kl_boot, [100.0 * alpha / 2.0, 100.0 * (1.0 - alpha / 2.0)])
+            pct = int(round(float(level) * 100))
+            row[f"bootstrap_qpu_sim_lo_{pct}"] = float(lo)
+            row[f"bootstrap_qpu_sim_hi_{pct}"] = float(hi)
         rows.append(row)
     return pd.DataFrame(rows).sort_values(["ansatz", "depth"]).reset_index(drop=True)
 

@@ -17,6 +17,7 @@ from qbanknote.ansatzes import (  # noqa: E402
 )
 from qbanknote.metrics import (  # noqa: E402
     analyze_kl_qpu_sim_haar_jobs,
+    compute_kl_bootstrap_qpu_sim_uncertainty,
     compute_kl_bootstrap_uncertainty,
     compute_kl_drift_summary,
     list_kl_hardware_executions,
@@ -108,6 +109,7 @@ def main() -> None:
     primary_executions = list_kl_run_data_dirs(run_dir)
     execution_meta: list[dict[str, object]] = []
     bootstrap_frames = []
+    qpu_sim_boot_frames = []
     summary_frames = []
 
     for execution_index, (data_dir, run_label, iteration) in enumerate(executions):
@@ -141,6 +143,8 @@ def main() -> None:
         default_n_bins = args.n_bins if args.n_bins is not None else 400
         if args.n_bins is None and not summary_df.empty:
             default_n_bins = int(summary_df.iloc[0]["n_bins"])
+        if args.n_bins is not None:
+            summary_df["n_bins"] = int(args.n_bins)
 
         bootstrap_frames.append(
             compute_kl_bootstrap_uncertainty(
@@ -155,6 +159,21 @@ def main() -> None:
                 iteration=iteration,
                 data_dir=str(data_dir),
                 summary_df=summary_df,
+            )
+        )
+        qpu_sim_boot_frames.append(
+            compute_kl_bootstrap_qpu_sim_uncertainty(
+                fidelities_df,
+                ansatz_fns=ansatz_fns,
+                n_bins=default_n_bins,
+                eps=args.eps,
+                n_bootstrap=n_bootstrap,
+                seed=bootstrap_seed,
+                base_seed=bootstrap_seed,
+                confidence_levels=confidence_levels,
+                run_label=run_label,
+                iteration=iteration,
+                data_dir=str(data_dir),
             )
         )
         execution_meta.append(
@@ -172,6 +191,24 @@ def main() -> None:
         if bootstrap_frames
         else pd.DataFrame()
     )
+    qpu_sim_boot_df = (
+        pd.concat(qpu_sim_boot_frames, ignore_index=True)
+        if qpu_sim_boot_frames
+        else pd.DataFrame()
+    )
+    if not bootstrap_df.empty and not qpu_sim_boot_df.empty:
+        merge_keys = ["ansatz", "depth", "run_label", "iteration", "data_dir"]
+        merge_keys = [key for key in merge_keys if key in bootstrap_df.columns and key in qpu_sim_boot_df.columns]
+        qpu_sim_cols = [
+            col
+            for col in qpu_sim_boot_df.columns
+            if col.startswith("kl_qpu_sim") or col.startswith("bootstrap_qpu_sim")
+        ]
+        bootstrap_df = bootstrap_df.merge(
+            qpu_sim_boot_df[merge_keys + qpu_sim_cols],
+            on=merge_keys,
+            how="left",
+        )
     analysis_dir = run_dir / "analysis"
     analysis_dir.mkdir(parents=True, exist_ok=True)
     bootstrap_path = analysis_dir / "kl_bootstrap_uncertainty.csv"

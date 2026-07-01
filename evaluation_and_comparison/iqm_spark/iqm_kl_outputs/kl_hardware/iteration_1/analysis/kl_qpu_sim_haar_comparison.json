@@ -1,0 +1,108 @@
+{
+  "comparison_csv": "evaluation_and_comparison\\iqm_spark\\iqm_kl_outputs\\kl_hardware\\iteration_1\\analysis\\kl_qpu_sim_haar_comparison.csv",
+  "protocol": {
+    "ansatzes": [
+      "ansatz_odra",
+      "ansatz_simulator"
+    ],
+    "bootstrap_trials": 5000,
+    "confidence_levels": [
+      0.9,
+      0.95
+    ],
+    "depths": [
+      2,
+      4
+    ],
+    "eps": 1e-12,
+    "iterations": 2,
+    "methodology": "evaluation_and_comparison/iqm_spark/iqm_kl_hardware_methodology.html",
+    "n_bins": 400,
+    "n_samples": 60,
+    "num_qubits": 5,
+    "seed": 42,
+    "shots": 2048
+  },
+  "rows": [
+    {
+      "ansatz": "ansatz_odra",
+      "data_dir": "evaluation_and_comparison\\iqm_spark\\iqm_kl_outputs\\kl_hardware\\iteration_1",
+      "delta_kl_haar_qpu_minus_sim": 0.08460770595619263,
+      "depth": 2,
+      "eps": 1e-12,
+      "f_gap_mean_abs": 0.016499356308482534,
+      "f_gap_rmse": 0.028409702160376027,
+      "f_qpu_mean": 0.03119338407424182,
+      "f_sim_mean": 0.0300411935227841,
+      "kl_qpu_haar": 0.23199534476733139,
+      "kl_qpu_sim": 0.21529632115517525,
+      "kl_sim_haar": 0.14738763881113875,
+      "kl_sim_qpu": 1.3108571845022305,
+      "n_bins": 75,
+      "n_qubits": 5,
+      "n_samples": 60,
+      "seed": 242,
+      "shots": 2048
+    },
+    {
+      "ansatz": "ansatz_odra",
+      "data_dir": "evaluation_and_comparison\\iqm_spark\\iqm_kl_outputs\\kl_hardware\\iteration_1",
+      "delta_kl_haar_qpu_minus_sim": 1.5167070495401422,
+      "depth": 4,
+      "eps": 1e-12,
+      "f_gap_mean_abs": 0.019534705037908894,
+      "f_gap_rmse": 0.023671311265598273,
+      "f_qpu_mean": 0.03167172681276465,
+      "f_sim_mean": 0.029556003265945815,
+      "kl_qpu_haar": 1.6213361259583134,
+      "kl_qpu_sim": 1.645165923460617,
+      "kl_sim_haar": 0.10462907641817128,
+      "kl_sim_qpu": 17.627905597811925,
+      "n_bins": 75,
+      "n_qubits": 5,
+      "n_samples": 60,
+      "seed": 442,
+      "shots": 2048
+    },
+    {
+      "ansatz": "ansatz_simulator",
+      "data_dir": "evaluation_and_comparison\\iqm_spark\\iqm_kl_outputs\\kl_hardware\\iteration_1",
+      "delta_kl_haar_qpu_minus_sim": 0.3775254643655017,
+      "depth": 2,
+      "eps": 1e-12,
+      "f_gap_mean_abs": 0.0208337807407596,
+      "f_gap_rmse": 0.027389791989465725,
+      "f_qpu_mean": 0.03151368629955576,
+      "f_sim_mean": 0.02743099400135267,
+      "kl_qpu_haar": 0.5581088717094616,
+      "kl_qpu_sim": 0.9782120880831493,
+      "kl_sim_haar": 0.18058340734395986,
+      "kl_sim_qpu": 2.729704901768689,
+      "n_bins": 75,
+      "n_qubits": 5,
+      "n_samples": 60,
+      "seed": 243,
+      "shots": 2048
+    },
+    {
+      "ansatz": "ansatz_simulator",
+      "data_dir": "evaluation_and_comparison\\iqm_spark\\iqm_kl_outputs\\kl_hardware\\iteration_1",
+      "delta_kl_haar_qpu_minus_sim": 1.6256756427427053,
+      "depth": 4,
+      "eps": 1e-12,
+      "f_gap_mean_abs": 0.024127001540799702,
+      "f_gap_rmse": 0.03256608610102569,
+      "f_qpu_mean": 0.03409102747067414,
+      "f_sim_mean": 0.037251965900725006,
+      "kl_qpu_haar": 1.715982266356711,
+      "kl_qpu_sim": 1.9499191694716878,
+      "kl_sim_haar": 0.09030662361400574,
+      "kl_sim_qpu": 19.61316542267203,
+      "n_bins": 75,
+      "n_qubits": 5,
+      "n_samples": 60,
+      "seed": 443,
+      "shots": 2048
+    }
+  ]
+}
