@@ -3,19 +3,19 @@
     "ansatz_odra",
     "ansatz_simulator"
   ],
-  "backend": "<iqm.qiskit_iqm.iqm_provider.IQMBackend object at 0x000001B2D908D340>",
+  "backend": "<iqm.qiskit_iqm.iqm_provider.IQMBackend object at 0x000001E7D37EDF70>",
   "circuits_per_fidelity_sample": 486,
-  "created_utc": "2026-07-01T08:32:43.353732+00:00",
+  "created_utc": "2026-07-01T23:22:13.695445+00:00",
   "depths": [
-    2,
-    4
+    4,
+    6
   ],
   "eps": 1e-12,
   "fidelity_definition": "Tr(rho_a @ rho_b) from full 3^n Pauli tomography",
   "hardware_retries": 6,
   "iqm_url": "https://odra5.e-science.pl/",
   "iteration": 1,
-  "jobs_completed": 4,
+  "jobs_completed": 2,
   "jobs_total": 4,
   "kl_direction": "P_hardware || P_Haar",
   "max_circuits_per_job": 250,

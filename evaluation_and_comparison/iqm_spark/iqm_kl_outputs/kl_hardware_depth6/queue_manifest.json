@@ -1,0 +1,26 @@
+{
+  "status": "queued",
+  "created_utc": "2026-07-02T00:00:00+00:00",
+  "run_id": "kl_hardware_depth6",
+  "description": "KL expressibility on IQM Spark — depth 6 only, fixed budget aligned with kl_hardware",
+  "protocol": {
+    "depths": [6],
+    "ansatzes": ["ansatz_odra", "ansatz_simulator"],
+    "n_samples": 60,
+    "shots": 2048,
+    "n_bins": 400,
+    "seed": 42,
+    "iterations": 2,
+    "hardware_retries": 6,
+    "retry_wait_seconds": 60,
+    "retry_max_wait_seconds": 600
+  },
+  "budget_estimate": {
+    "fidelity_pairs": 240,
+    "jobs_per_iteration": 2,
+    "wall_time_hours_at_4min_per_pair": 16.0,
+    "note": "Depth 6 may run slower than ~4 min/pair in practice."
+  },
+  "output_dir": "evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_depth6",
+  "launch_command_powershell": "$env:IQM_TOKEN = '<token>'; $env:RUN_ID = 'kl_hardware_depth6'; $env:DEPTHS = '6'; $env:ITERATIONS = '2'; $env:SAMPLES = '60'; $env:SHOTS = '2048'; $env:N_BINS = '400'; $env:SEED = '42'; $env:SKIP_BINS = '1'; $env:SKIP_ANALYSIS = '1'; .\\scripts\\run_iqm_kl_hardware_study.ps1 *>&1 | Tee-Object -FilePath evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_depth6/run.log"
+}
