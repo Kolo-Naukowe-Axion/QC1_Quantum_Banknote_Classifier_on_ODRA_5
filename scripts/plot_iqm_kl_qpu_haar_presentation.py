@@ -20,10 +20,10 @@ ANSATZ_LABELS = {
     "ansatz_simulator": "Simulator",
 }
 ANSATZ_COLORS = {
-    "ansatz_odra": "#1f77b4",
-    "ansatz_simulator": "#ff7f0e",
+    "ansatz_odra": "#212531",
+    "ansatz_simulator": "#C4302B",
 }
-ITER_COLORS = {1: "#2c5282", 2: "#c05621"}
+ITER_COLORS = {1: "#212531", 2: "#C4302B"}
 
 
 def parse_args() -> argparse.Namespace:

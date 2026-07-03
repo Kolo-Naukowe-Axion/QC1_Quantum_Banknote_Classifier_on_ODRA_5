@@ -1,18 +1,18 @@
 {
   "figures": [
     {
-      "pdf": "evaluation_and_comparison\\iqm_spark\\iqm_kl_outputs\\kl_hardware\\analysis\\presentation\\v1_executions_with_ci.pdf",
-      "png": "evaluation_and_comparison\\iqm_spark\\iqm_kl_outputs\\kl_hardware\\analysis\\presentation\\v1_executions_with_ci.png",
+      "pdf": "evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware/analysis/presentation/v1_executions_with_ci.pdf",
+      "png": "evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware/analysis/presentation/v1_executions_with_ci.png",
       "stem": "v1_executions_with_ci"
     },
     {
-      "pdf": "evaluation_and_comparison\\iqm_spark\\iqm_kl_outputs\\kl_hardware\\analysis\\presentation\\v2_headline_odra_vs_sim.pdf",
-      "png": "evaluation_and_comparison\\iqm_spark\\iqm_kl_outputs\\kl_hardware\\analysis\\presentation\\v2_headline_odra_vs_sim.png",
+      "pdf": "evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware/analysis/presentation/v2_headline_odra_vs_sim.pdf",
+      "png": "evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware/analysis/presentation/v2_headline_odra_vs_sim.png",
       "stem": "v2_headline_odra_vs_sim"
     },
     {
-      "pdf": "evaluation_and_comparison\\iqm_spark\\iqm_kl_outputs\\kl_hardware\\analysis\\presentation\\v3_interval_overview.pdf",
-      "png": "evaluation_and_comparison\\iqm_spark\\iqm_kl_outputs\\kl_hardware\\analysis\\presentation\\v3_interval_overview.png",
+      "pdf": "evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware/analysis/presentation/v3_interval_overview.pdf",
+      "png": "evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware/analysis/presentation/v3_interval_overview.png",
       "stem": "v3_interval_overview"
     }
   ],

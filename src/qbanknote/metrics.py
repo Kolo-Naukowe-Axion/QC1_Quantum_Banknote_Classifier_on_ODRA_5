@@ -869,9 +869,11 @@ def compute_statevector_fidelities_for_job(
 ) -> np.ndarray:
     """Recompute all noiseless pairwise fidelities for one (ansatz, depth) job."""
     n_params = len(ansatz_fn(n_qubits, depth).parameters)
+    rng = np.random.default_rng(int(seed))
     values = np.empty(int(n_samples), dtype=np.float64)
     for sample_index in range(int(n_samples)):
-        theta_a, theta_b = reproduce_pairwise_thetas(seed, n_params, sample_index)
+        theta_a = rng.uniform(0.0, 2.0 * np.pi, n_params)
+        theta_b = rng.uniform(0.0, 2.0 * np.pi, n_params)
         values[sample_index] = statevector_pairwise_fidelity(
             ansatz_fn,
             n_qubits,

@@ -1,0 +1,73 @@
+{
+  "mode": "rebin",
+  "metric": "kl_sim_haar",
+  "base_seed": 42,
+  "n_qubits": 5,
+  "depths": [
+    2,
+    4
+  ],
+  "ansatz": [
+    "ansatz_odra",
+    "ansatz_simulator"
+  ],
+  "n_bins": 150,
+  "eps": 1e-12,
+  "rows": [
+    {
+      "ansatz": "ansatz_odra",
+      "depth": 2,
+      "n_qubits": 5,
+      "n_samples": 5000,
+      "n_bins": 150,
+      "eps": 1e-12,
+      "seed": 242,
+      "kl_sim_haar": 0.1028933622502988,
+      "fidelity_mean": 0.030935436233120436,
+      "fidelity_std": 0.04411331827906846,
+      "wall_seconds": 0.0
+    },
+    {
+      "ansatz": "ansatz_odra",
+      "depth": 4,
+      "n_qubits": 5,
+      "n_samples": 5000,
+      "n_bins": 150,
+      "eps": 1e-12,
+      "seed": 442,
+      "kl_sim_haar": 0.007492309530040738,
+      "fidelity_mean": 0.03124965306710718,
+      "fidelity_std": 0.03178697448369607,
+      "wall_seconds": 0.0
+    },
+    {
+      "ansatz": "ansatz_simulator",
+      "depth": 2,
+      "n_qubits": 5,
+      "n_samples": 5000,
+      "n_bins": 150,
+      "eps": 1e-12,
+      "seed": 243,
+      "kl_sim_haar": 0.0753023533413133,
+      "fidelity_mean": 0.031194228460046828,
+      "fidelity_std": 0.04086806327570896,
+      "wall_seconds": 0.0
+    },
+    {
+      "ansatz": "ansatz_simulator",
+      "depth": 4,
+      "n_qubits": 5,
+      "n_samples": 5000,
+      "n_bins": 150,
+      "eps": 1e-12,
+      "seed": 443,
+      "kl_sim_haar": 0.006262788271864365,
+      "fidelity_mean": 0.030626560278153442,
+      "fidelity_std": 0.031165557418135703,
+      "wall_seconds": 0.0
+    }
+  ],
+  "outputs": [
+    "sim_kl_results.csv"
+  ]
+}

@@ -38,8 +38,8 @@ ANSATZ_LABELS = {
     "ansatz_simulator": "Simulator",
 }
 ANSATZ_COLORS = {
-    "ansatz_odra": "#1f77b4",
-    "ansatz_simulator": "#ff7f0e",
+    "ansatz_odra": "#212531",
+    "ansatz_simulator": "#C4302B",
 }
 ITERATION_LINESTYLES = {
     1: "-",

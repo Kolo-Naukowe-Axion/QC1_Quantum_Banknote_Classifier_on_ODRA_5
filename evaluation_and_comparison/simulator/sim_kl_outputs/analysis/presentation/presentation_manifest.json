@@ -1,0 +1,63 @@
+{
+  "ci_level": 0.9,
+  "eps": 1e-12,
+  "figures": {
+    "pdf": "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/simulator/sim_kl_outputs/analysis/presentation/v2_headline_odra_vs_sim_pooled_ci90.pdf",
+    "png": "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/simulator/sim_kl_outputs/analysis/presentation/v2_headline_odra_vs_sim_pooled_ci90.png"
+  },
+  "metric": "kl_sim_haar",
+  "n_bins": 150,
+  "n_bootstrap": 5000,
+  "rows": [
+    {
+      "ansatz": "ansatz_odra",
+      "ansatz_label": "Odra",
+      "bootstrap_std": 0.0089224474561223,
+      "ci_hi": 0.12444675736591061,
+      "ci_lo": 0.09499761822683457,
+      "depth": 2,
+      "kl_sim_haar": 0.1028933622502988,
+      "n_bins": 150,
+      "n_bootstrap": 5000,
+      "n_samples": 5000
+    },
+    {
+      "ansatz": "ansatz_odra",
+      "ansatz_label": "Odra",
+      "bootstrap_std": 0.002138532680836199,
+      "ci_hi": 0.014831498144052973,
+      "ci_lo": 0.007850611678470168,
+      "depth": 4,
+      "kl_sim_haar": 0.007492309530040738,
+      "n_bins": 150,
+      "n_bootstrap": 5000,
+      "n_samples": 5000
+    },
+    {
+      "ansatz": "ansatz_simulator",
+      "ansatz_label": "Simulator",
+      "bootstrap_std": 0.006393713534454743,
+      "ci_hi": 0.09048091321662365,
+      "ci_lo": 0.06948827415221165,
+      "depth": 2,
+      "kl_sim_haar": 0.0753023533413133,
+      "n_bins": 150,
+      "n_bootstrap": 5000,
+      "n_samples": 5000
+    },
+    {
+      "ansatz": "ansatz_simulator",
+      "ansatz_label": "Simulator",
+      "bootstrap_std": 0.001783964530209539,
+      "ci_hi": 0.012666598877660315,
+      "ci_lo": 0.006812485259229575,
+      "depth": 4,
+      "kl_sim_haar": 0.006262788271864365,
+      "n_bins": 150,
+      "n_bootstrap": 5000,
+      "n_samples": 5000
+    }
+  ],
+  "run_dir": "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/simulator/sim_kl_outputs",
+  "summary_csv": "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/simulator/sim_kl_outputs/analysis/presentation/sim_kl_presentation_summary.csv"
+}

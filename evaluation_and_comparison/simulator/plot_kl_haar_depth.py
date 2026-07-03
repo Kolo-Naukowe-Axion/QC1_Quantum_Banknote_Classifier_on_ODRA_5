@@ -12,8 +12,8 @@ DEPTHS = np.array([2, 4, 6])
 ODRA = np.array([0.096967, 0.000893, 0.000256])
 SIMULATOR = np.array([0.068663, 0.002184, 0.000323])
 
-COLOR_ODRA = "#1f77b4"
-COLOR_SIM = "#ff7f0e"
+COLOR_ODRA = "#212531"
+COLOR_SIM = "#C4302B"
 
 
 def _format_kl_value(value: float) -> str:
