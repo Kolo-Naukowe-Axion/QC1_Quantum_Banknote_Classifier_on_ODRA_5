@@ -1,0 +1,13 @@
+numpy
+pandas
+scikit-learn
+torch
+ucimlrepo
+qiskit<3.0,>=2.0
+qiskit-machine-learning<0.10,>=0.9
+iqm-client[qiskit]<34.0,>=33.0
+
+[dev]
+pytest
+qiskit-aer>=0.15.0
+matplotlib

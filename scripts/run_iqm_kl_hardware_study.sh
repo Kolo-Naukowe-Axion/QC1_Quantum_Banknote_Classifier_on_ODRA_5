@@ -20,7 +20,7 @@
 #
 # Environment overrides:
 #   RUN_ID=kl_hardware
-#   DEPTHS="2 4"
+#   DEPTHS="2 4 6"
 #   SAMPLES=60
 #   SHOTS=2048
 #   N_BINS=400
@@ -47,7 +47,7 @@ else
 fi
 
 RUN_ID="${RUN_ID:-kl_hardware}"
-DEPTHS="${DEPTHS:-2 4}"
+DEPTHS="${DEPTHS:-2 4 6}"
 SAMPLES="${SAMPLES:-60}"
 SHOTS="${SHOTS:-2048}"
 N_BINS="${N_BINS:-400}"
@@ -66,9 +66,10 @@ RUN_DIR="${ROOT}/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/${RUN_ID}"
 
 # shellcheck disable=SC2206
 DEPTH_ARR=(${DEPTHS})
-N_ANSATZES=2
+N_ANSATZES="${N_ANSATZES:-1}"
 N_DEPTHS=${#DEPTH_ARR[@]}
 PAIRS=$((N_ANSATZES * N_DEPTHS * SAMPLES * ITERATIONS))
+POOL_SAMPLES=$((SAMPLES * ITERATIONS))
 EST_HOURS=$("${PYTHON[@]}" -c "print(f'{$PAIRS * $SHOTS / 4096 / 15:.1f}')")
 
 echo "=== KL hardware study (fixed budget) ==="
@@ -76,7 +77,7 @@ echo "Python:       ${PYTHON[*]}"
 echo "Run ID:       ${RUN_ID}"
 echo "Run output:   ${RUN_DIR}"
 echo "Depths:       ${DEPTHS}"
-echo "Samples/job:  ${SAMPLES}"
+echo "Samples/job:  ${SAMPLES}  (pooled ${POOL_SAMPLES} per ansatz×depth over ${ITERATIONS} iterations)"
 echo "Shots:        ${SHOTS}"
 echo "Iterations:   ${ITERATIONS}"
 echo "Retries:      ${HARDWARE_RETRIES} (wait ${RETRY_WAIT_SECONDS}s, max ${RETRY_MAX_WAIT_SECONDS}s)"

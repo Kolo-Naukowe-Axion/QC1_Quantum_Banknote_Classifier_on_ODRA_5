@@ -1,0 +1,18 @@
+Metadata-Version: 2.4
+Name: qbanknote
+Version: 0.1.0
+Summary: Shared utilities for the Quantum Banknote Classifier project
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: numpy
+Requires-Dist: pandas
+Requires-Dist: scikit-learn
+Requires-Dist: torch
+Requires-Dist: ucimlrepo
+Requires-Dist: qiskit<3.0,>=2.0
+Requires-Dist: qiskit-machine-learning<0.10,>=0.9
+Requires-Dist: iqm-client[qiskit]<34.0,>=33.0
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: qiskit-aer>=0.15.0; extra == "dev"
+Requires-Dist: matplotlib; extra == "dev"

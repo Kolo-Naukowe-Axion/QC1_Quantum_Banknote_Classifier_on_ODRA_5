@@ -12,8 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from qbanknote.ansatzes import (  # noqa: E402
-    odra_ansatz as ansatz_odra,
-    simulator_ansatz as ansatz_simulator,
+    DEFAULT_STAR_ANSATZES,
+    star_ansatz_registry,
 )
 from qbanknote.metrics import (  # noqa: E402
     analyze_kl_qpu_sim_haar_jobs,
@@ -29,7 +29,7 @@ from qbanknote.metrics import (  # noqa: E402
 )
 from qbanknote.paths import ensure_importable  # noqa: E402
 
-DEFAULT_ANSATZES = ("ansatz_odra", "ansatz_simulator")
+DEFAULT_ANSATZES = DEFAULT_STAR_ANSATZES
 
 
 def parse_args() -> argparse.Namespace:
@@ -80,10 +80,7 @@ def main() -> None:
     if compare_run_dir is not None and not compare_run_dir.is_dir():
         raise SystemExit(f"Compare run directory not found: {compare_run_dir}")
 
-    all_ansatz_fns = {
-        "ansatz_odra": ansatz_odra,
-        "ansatz_simulator": ansatz_simulator,
-    }
+    all_ansatz_fns = star_ansatz_registry()
     for name in args.ansatz:
         if name not in all_ansatz_fns:
             raise SystemExit(f"Unknown ansatz: {name}. Choose from {sorted(all_ansatz_fns)}")

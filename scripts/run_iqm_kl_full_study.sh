@@ -27,8 +27,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-PILOT_ID="${PILOT_ID:-kl_pilot_paper}"
-RUN_ID="${RUN_ID:-kl_full_study}"
+PILOT_ID="${PILOT_ID:-kl_pilot_star}"
+RUN_ID="${RUN_ID:-kl_full_star}"
 PROTOCOL_SCOPE="${PROTOCOL_SCOPE:-global}"
 SKIP_PILOT="${SKIP_PILOT:-0}"
 SKIP_PRODUCTION="${SKIP_PRODUCTION:-0}"

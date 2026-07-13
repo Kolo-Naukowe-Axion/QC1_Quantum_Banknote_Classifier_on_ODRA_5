@@ -1,0 +1,14 @@
+{
+  "methodology": "evaluation_and_comparison/iqm_spark/iqm_kl_hardware_methodology.html",
+  "depths": [2, 4, 6],
+  "n_samples": 60,
+  "shots": 2048,
+  "n_bins": 400,
+  "seed": 42,
+  "iterations": 2,
+  "bootstrap_trials": 5000,
+  "confidence_levels": [0.90, 0.95],
+  "eps": 1e-12,
+  "num_qubits": 5,
+  "ansatzes": ["ansatz_star"]
+}

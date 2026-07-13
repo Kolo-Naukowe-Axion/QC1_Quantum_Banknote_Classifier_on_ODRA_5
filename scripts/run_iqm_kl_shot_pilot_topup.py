@@ -16,8 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from qbanknote.ansatzes import (  # noqa: E402
-    odra_ansatz as ansatz_odra,
-    simulator_ansatz as ansatz_simulator,
+    DEFAULT_STAR_ANSATZES,
+    star_ansatz_registry,
 )
 from qbanknote.iqm import connect_to_iqm_backend  # noqa: E402
 from qbanknote.metrics import (  # noqa: E402
@@ -39,7 +39,7 @@ from qbanknote.progress import make_print_callback  # noqa: E402
 
 DEFAULT_OUTPUT_ROOT = "evaluation_and_comparison/iqm_spark/iqm_kl_outputs"
 DEFAULT_DEPTHS = [2, 4, 6]
-DEFAULT_ANSATZES = ("ansatz_odra", "ansatz_simulator")
+DEFAULT_ANSATZES = DEFAULT_STAR_ANSATZES
 DEFAULT_SHOT_GRID = [512, 1024, 2048, 4096, 8192]
 
 
@@ -334,10 +334,7 @@ def main() -> None:
         else project_root / DEFAULT_OUTPUT_ROOT / "pilots" / args.pilot_id
     )
     shot_grid = sorted(set(int(value) for value in args.shot_grid))
-    ansatz_fns = {
-        "ansatz_odra": ansatz_odra,
-        "ansatz_simulator": ansatz_simulator,
-    }
+    ansatz_fns = star_ansatz_registry()
 
     shot_summary = _load_shot_pilot_summary(output_root, shot_grid)
     if shot_summary.empty:
