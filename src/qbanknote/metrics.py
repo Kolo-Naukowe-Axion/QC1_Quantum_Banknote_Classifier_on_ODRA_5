@@ -13,15 +13,13 @@ import numpy as np
 from qiskit import QuantumCircuit
 
 from qbanknote.ansatzes import trimmed_reverse_q0_param_count
-from qbanknote.data import load_fold_arrays
-from qbanknote.evaluation import append_csv_row, ansatz_key, read_csv_or_empty
+from qbanknote.evaluation import append_csv_row, read_csv_or_empty
 from qbanknote.iqm import run_circuits_on_backend, transpile_for_backend
 from qbanknote.paths import find_project_root
 from qbanknote.progress import report_progress
 from qbanknote.tomography import (
     add_tomography_rotations,
     all_basis_settings,
-    build_bound_circuit,
     expectation_from_counts,
     hardware_overlap,
     project_to_physical,
@@ -29,7 +27,6 @@ from qbanknote.tomography import (
     state_fidelity_pure,
     tomography_density_matrices,
 )
-from qbanknote.weights import load_trained_weights, metric_weight_path
 
 BasisName = Literal["Z", "X", "Y"]
 BASIS_ORDER: tuple[BasisName, ...] = ("Z", "X", "Y")
@@ -979,6 +976,19 @@ def reproduce_pairwise_thetas(
         theta_a = rng.uniform(0.0, 2.0 * np.pi, int(n_params))
         theta_b = rng.uniform(0.0, 2.0 * np.pi, int(n_params))
     return theta_a, theta_b
+
+
+def reproduce_random_thetas(
+    seed: int,
+    n_params: int,
+    sample_index: int,
+) -> np.ndarray:
+    """Reproduce one MW/KL-style random ansatz parameter draw for a sample index."""
+    rng = np.random.default_rng(int(seed))
+    theta = np.empty(0, dtype=np.float64)
+    for _ in range(int(sample_index) + 1):
+        theta = rng.uniform(0.0, 2.0 * np.pi, int(n_params))
+    return theta
 
 
 def statevector_pairwise_fidelity(
@@ -2052,12 +2062,10 @@ def estimate_wall_time_minutes(
 #
 # Fidelity here is the hardware state-tomography fidelity
 #     F = <psi_ideal | rho_hardware | psi_ideal>
-# where psi_ideal is the noiseless statevector of the bound circuit
-# (feature map + trained ansatz) and rho_hardware is reconstructed from a full
-# 3^n Pauli tomography sweep, then projected to the physical set (F_phys).
-# This mirrors the Meyer-Wallach pilot, but the per-setting metric is the mean
-# physical-projection fidelity over n_samples frozen test inputs evaluated with
-# the trained weights theta*.
+# where psi_ideal is the noiseless statevector of the ansatz with one random
+# parameter draw theta ~ Uniform[0, 2*pi] (same sampling rule as MW/KL) and
+# rho_hardware is reconstructed from a full 3^n Pauli tomography sweep, then
+# projected to the physical set (F_phys).
 # ---------------------------------------------------------------------------
 
 
@@ -2111,9 +2119,7 @@ def required_fidelity_samples(std: float, target_half_width: float, z_value: flo
 
 def sample_fidelity_one(
     backend,
-    ansatz_circuit: QuantumCircuit,
-    weight_values: np.ndarray,
-    x_value: np.ndarray,
+    state_circuit: QuantumCircuit,
     *,
     n_qubits: int,
     shots: int,
@@ -2122,13 +2128,12 @@ def sample_fidelity_one(
     max_circuits_per_job: int,
     label: str = "",
 ) -> dict[str, object]:
-    """Run full hardware tomography for one (trained weights, test input) pair."""
+    """Run full hardware tomography for one prepared ansatz state."""
     from qiskit.quantum_info import Statevector
 
-    bound = build_bound_circuit(ansatz_circuit, x_value, weight_values, n_qubits)
-    psi_ideal = Statevector.from_instruction(bound).data
+    psi_ideal = Statevector.from_instruction(state_circuit).data
     rho_lin, rho_phys, diagnostics = tomography_density_matrices(
-        bound,
+        state_circuit,
         backend,
         n_qubits=n_qubits,
         shots=shots,
@@ -2290,9 +2295,6 @@ def run_iqm_fidelity_sweep(
     seed_transpiler: int | None,
     max_circuits_per_job: int,
     output_dir: Path,
-    fold: int = 1,
-    epoch: int = 30,
-    root: Path | None = None,
     resume: bool = True,
     verbose: bool = False,
     progress_callback: Callable[[str, int, int], None] | None = None,
@@ -2300,23 +2302,14 @@ def run_iqm_fidelity_sweep(
 ) -> Path:
     """Run a state-tomography fidelity hardware sweep with resumable CSV artifacts.
 
-    For each (ansatz, depth) the frozen trained weights ``theta*`` are loaded from
-    the matching cross-validation checkpoint and evaluated on the first
-    ``n_samples`` inputs of the fold's test split.
+    For each (ansatz, depth) draw ``n_samples`` random parameter vectors
+    ``theta ~ Uniform[0, 2*pi]`` using the same seeding rule as MW/KL, bind them
+    to the ansatz, and measure hardware state fidelity via full tomography.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     summary_path = output_dir / "iqm_fidelity_results.csv"
     scores_path = output_dir / "iqm_fidelity_scores.csv"
     manifest_path = output_dir / "run_manifest.json"
-
-    project_root = find_project_root(root)
-    X_test, _ = load_fold_arrays(fold, split="test", root=project_root)
-    if len(X_test) < n_samples:
-        raise ValueError(
-            f"Fold {fold} test split has {len(X_test)} inputs, fewer than "
-            f"requested n_samples={n_samples}"
-        )
-    inputs = np.asarray(X_test[:n_samples], dtype=float)
 
     completed = completed_fidelity_jobs(summary_path) if resume else set()
     jobs = [(ansatz_name, depth) for depth in depths for ansatz_name in ansatz_names]
@@ -2327,21 +2320,8 @@ def run_iqm_fidelity_sweep(
         if (ansatz_name, depth) in completed:
             continue
 
-        ansatz_circuit = ansatz_fns[ansatz_name](n_qubits, depth)
-        n_params = len(ansatz_circuit.parameters)
-        weight_file = metric_weight_path(
-            depth,
-            ansatz_key(ansatz_name),
-            fold,
-            epoch=epoch,
-            root=project_root,
-        )
-        if not weight_file.exists():
-            raise FileNotFoundError(
-                f"Trained weights not found for {ansatz_name} depth={depth} "
-                f"fold={fold} epoch={epoch}: {weight_file}"
-            )
-        weight_values = load_trained_weights(weight_file, ansatz_circuit)
+        ansatz_fn = ansatz_fns[ansatz_name]
+        n_params = len(ansatz_fn(n_qubits, depth).parameters)
         depth_seed = seed + depth * 1000 + (1 if ansatz_name == "ansatz_simulator" else 0)
 
         saved_samples = (
@@ -2354,7 +2334,7 @@ def run_iqm_fidelity_sweep(
         if saved_samples and verbose:
             print(
                 f"Resuming {ansatz_name} depth={depth}: "
-                f"{len(saved_samples)}/{n_samples} inputs on disk",
+                f"{len(saved_samples)}/{n_samples} samples on disk",
                 flush=True,
             )
         elif verbose:
@@ -2364,17 +2344,17 @@ def run_iqm_fidelity_sweep(
         for sample_index in range(n_samples):
             if sample_index in saved_samples:
                 continue
+            theta = reproduce_random_thetas(depth_seed, n_params, sample_index)
+            bound = bind_ansatz(ansatz_fn, n_qubits, depth, theta)
             row = sample_fidelity_one(
                 backend,
-                ansatz_circuit,
-                weight_values,
-                inputs[sample_index],
+                bound,
                 n_qubits=n_qubits,
                 shots=shots,
                 optimization_level=optimization_level,
                 seed_transpiler=seed_transpiler,
                 max_circuits_per_job=max_circuits_per_job,
-                label=f"{ansatz_name} depth={depth} input {sample_index + 1}/{n_samples}",
+                label=f"{ansatz_name} depth={depth} sample {sample_index + 1}/{n_samples}",
             )
             row["sample_index"] = sample_index
             append_csv_row(
@@ -2388,7 +2368,7 @@ def run_iqm_fidelity_sweep(
         if len(sample_rows) < n_samples:
             raise RuntimeError(
                 f"Incomplete fidelity job {ansatz_name} depth={depth}: "
-                f"expected {n_samples} inputs, got {len(sample_rows)}"
+                f"expected {n_samples} samples, got {len(sample_rows)}"
             )
 
         result = aggregate_fidelity_from_sample_rows(
@@ -2403,7 +2383,7 @@ def run_iqm_fidelity_sweep(
                 depth=depth,
                 shots=shots,
                 seed=depth_seed,
-                fold=fold,
+                fold=0,
                 result=result,
             ),
         )
@@ -2415,8 +2395,10 @@ def run_iqm_fidelity_sweep(
         "source_script": "scripts/pilot_state_fidelity.py",
         "method": "hardware_state_tomography_fidelity",
         "fidelity_definition": (
-            "F = <psi_ideal | rho_hardware | psi_ideal> from full 3^n Pauli tomography"
+            "F = <psi_ideal | rho_hardware | psi_ideal> from full 3^n Pauli tomography "
+            "with ansatz parameters drawn uniformly from [0, 2*pi] (same as MW/KL)"
         ),
+        "weight_sampling": "uniform_random_0_2pi",
         "headline_metric": "f_phys_avg",
         "n_qubits": n_qubits,
         "depths": list(depths),
@@ -2424,11 +2406,9 @@ def run_iqm_fidelity_sweep(
         "n_samples": n_samples,
         "shots": shots,
         "seed": seed,
-        "fold": fold,
-        "checkpoint_epoch": epoch,
         "optimization_level": optimization_level,
         "max_circuits_per_job": max_circuits_per_job,
-        "circuits_per_input": 3**n_qubits,
+        "circuits_per_sample": 3**n_qubits,
         "total_tomography_circuits": len(ansatz_names) * len(depths) * n_samples * (3**n_qubits),
         "outputs": ["iqm_fidelity_results.csv", "iqm_fidelity_scores.csv"],
     }

@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """Run the state-fidelity pilot protocol and write precision recommendations.
 
-State fidelity here is the hardware state-tomography fidelity computed in
-``full_odra_fidelity.ipynb``:
+State fidelity here is the hardware state-tomography fidelity:
 
     F = <psi_ideal | rho_hardware | psi_ideal>
 
-where ``psi_ideal`` is the noiseless statevector of the bound circuit
-(feature map + trained ansatz) and ``rho_hardware`` is reconstructed from a
-full 3^n Pauli-basis tomography sweep on IQM Spark, then projected to the
-physical set. The headline metric is the physical-projection fidelity
-(``F_phys``).
+where ``psi_ideal`` is the noiseless statevector of the ansatz with one random
+parameter draw ``theta ~ Uniform[0, 2*pi]`` (same sampling rule as MW/KL) and
+``rho_hardware`` is reconstructed from a full 3^n Pauli-basis tomography sweep
+on IQM Spark, then projected to the physical set. The headline metric is the
+physical-projection fidelity (``F_phys``).
 
 """
 
@@ -30,6 +29,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from qbanknote.ansatzes import (  # noqa: E402
     odra_ansatz as ansatz_odra,
+    odra_star_ansatz as ansatz_odra_star,
     simulator_ansatz as ansatz_simulator,
 )
 from qbanknote.iqm import connect_to_iqm_backend  # noqa: E402
@@ -52,6 +52,8 @@ from qbanknote.progress import make_print_callback  # noqa: E402
 
 DEFAULT_OUTPUT_ROOT = "evaluation_and_comparison/iqm_spark/iqm_fidelity_outputs"
 DEFAULT_DEPTHS = [2, 4, 6]
+# Keep defaults identical to the original pilot protocol (two-ansatz baseline).
+# New ansatze (e.g. ansatz_odra_star) must be requested explicitly via --ansatz.
 DEFAULT_ANSATZES = ("ansatz_odra", "ansatz_simulator")
 DEFAULT_SHOT_GRID = [512, 1024, 2048, 4096]
 DEFAULT_SAMPLE_GRID = [10, 20, 40]
@@ -244,6 +246,7 @@ def main() -> None:
     ansatz_fns = {
         "ansatz_odra": ansatz_odra,
         "ansatz_simulator": ansatz_simulator,
+        "ansatz_odra_star": ansatz_odra_star,
     }
     for name in args.ansatz:
         if name not in ansatz_fns:
