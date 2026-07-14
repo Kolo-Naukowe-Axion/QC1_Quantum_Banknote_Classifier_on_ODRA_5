@@ -1,0 +1,4 @@
+n_samples,max_confidence_half_width,max_required_n_samples,all_meet_target
+10,0.09048628223618724,91,False
+20,0.06978373682032102,109,False
+40,0.04959023786624426,110,False

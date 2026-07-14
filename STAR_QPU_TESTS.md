@@ -9,7 +9,7 @@ export IQM_TOKEN="your_token"
 export IQM_URL="https://odra5.e-science.pl/"   # optional, this is the default
 
 uv sync   # opcjonalne — run_star_mw_study.sh robi to samo przy starcie
-python scripts/check_star_qpu_readiness.py --require-fidelity-weights=false
+python scripts/check_star_qpu_readiness.py --no-require-fidelity-weights
 ```
 
 ## 1. Meyer–Wallach (pilot + final)

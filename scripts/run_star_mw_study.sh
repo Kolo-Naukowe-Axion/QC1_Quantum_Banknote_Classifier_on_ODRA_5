@@ -45,8 +45,9 @@ needs_qpu() {
 }
 
 if [[ "${SKIP_SYNC}" != "1" && -f "${ROOT}/pyproject.toml" ]] && command -v uv >/dev/null 2>&1; then
-  echo "[setup] uv sync..."
-  uv sync
+  echo "[setup] uv sync (Python 3.12)..."
+  uv python install 3.12 >/dev/null 2>&1 || true
+  uv sync --python 3.12
 fi
 
 echo "=== Star MW study (pilot + final) ==="
@@ -63,7 +64,7 @@ if needs_qpu && [[ -z "${IQM_TOKEN:-}" ]]; then
   exit 1
 fi
 
-"${PYTHON[@]}" scripts/check_star_qpu_readiness.py --require-fidelity-weights=false
+"${PYTHON[@]}" scripts/check_star_qpu_readiness.py --no-require-fidelity-weights
 
 if [[ "${SKIP_PILOT}" != "1" ]]; then
   if [[ -f "${PROTOCOL}" && "${FORCE_PILOT}" != "1" ]]; then

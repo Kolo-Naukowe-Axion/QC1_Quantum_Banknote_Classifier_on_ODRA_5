@@ -21,10 +21,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+if command -v uv >/dev/null 2>&1; then
+  PYTHON=(uv run python)
+else
+  PYTHON=(python3)
+fi
+
 export RUN_ID="${RUN_ID:-kl_hardware_star}"
 export DEPTHS="${DEPTHS:-2 4 6}"
 export SAMPLES="${SAMPLES:-60}"
 export ITERATIONS="${ITERATIONS:-2}"
 
-python scripts/check_star_qpu_readiness.py --require-fidelity-weights=false
+"${PYTHON[@]}" scripts/check_star_qpu_readiness.py --no-require-fidelity-weights
 exec ./scripts/run_iqm_kl_hardware_study.sh
