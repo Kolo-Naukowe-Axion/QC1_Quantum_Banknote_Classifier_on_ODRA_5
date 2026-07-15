@@ -1,0 +1,30 @@
+{
+  "ansatzes": [
+    "ansatz_star"
+  ],
+  "backend": "<iqm.qiskit_iqm.iqm_provider.IQMBackend object at 0x7f6de7299430>",
+  "created_utc": "2026-07-14T02:30:21.369628+00:00",
+  "depths": [
+    2,
+    4,
+    6
+  ],
+  "iqm_url": "https://odra5.e-science.pl/",
+  "iteration": 3,
+  "iterations": 3,
+  "max_circuits_per_job": 275,
+  "method": "local_xyz_tomography",
+  "n_qubits": 5,
+  "n_samples": 110,
+  "optimization_level": 1,
+  "outputs": [
+    "iqm_mw_results.csv",
+    "iqm_mw_scores.csv"
+  ],
+  "run_id": "mw_final_star",
+  "seed": 42,
+  "shots": 1024,
+  "source_notebook": "evaluation_and_comparison/iqm_spark/iqm_meyer_wallach.ipynb",
+  "source_script": "scripts/run_iqm_meyer_wallach.py",
+  "total_circuits": 990
+}

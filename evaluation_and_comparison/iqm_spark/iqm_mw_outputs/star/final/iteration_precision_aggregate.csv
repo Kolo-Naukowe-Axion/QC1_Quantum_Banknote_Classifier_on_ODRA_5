@@ -1,0 +1,2 @@
+iterations,max_iteration_half_width_95,mean_iteration_half_width_95,target_half_width,all_meet_target
+3,0.006540660254107364,0.0033973153385638325,0.01,True

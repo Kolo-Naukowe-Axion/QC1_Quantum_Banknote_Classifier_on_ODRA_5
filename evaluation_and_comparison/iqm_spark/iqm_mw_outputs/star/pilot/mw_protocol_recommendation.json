@@ -1,0 +1,44 @@
+{
+  "ansatzes": [
+    "ansatz_star"
+  ],
+  "chosen_iterations": 3,
+  "chosen_n_samples": 110,
+  "chosen_shots": 1024,
+  "confidence_z": 1.96,
+  "depths": [
+    2,
+    4,
+    6
+  ],
+  "drift_only": false,
+  "iqm_url": "https://odra5.e-science.pl/",
+  "iteration_target_met": true,
+  "iterations_run": 3,
+  "max_iterations": 5,
+  "mean_shot_noise_bound_at_chosen_samples": 0.0026650089544451305,
+  "methodology": {
+    "iteration_rule": "Repeat frozen protocol with identical seed; choose smallest K >= min_iterations such that max 95% iteration half-width <= target_iteration_half_width, otherwise use max_iterations.",
+    "sample_rule": "Choose smallest n_samples whose worst 95% half-width is <= target_half_width; otherwise use required_n_samples.",
+    "shot_rule": "Choose smallest shot count whose max consecutive MW mean change is <= shot_tolerance."
+  },
+  "min_iterations": 3,
+  "output_root": "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_mw_outputs/pilots/mw_pilot_star",
+  "pilot_id": "mw_pilot_star",
+  "pilot_samples": 10,
+  "sample_grid": [
+    10,
+    20,
+    40
+  ],
+  "shot_grid": [
+    512,
+    1024,
+    2048,
+    4096
+  ],
+  "shot_tolerance": 0.02,
+  "single_sample_shot_noise_sd_bound": 0.02795084971874737,
+  "target_half_width": 0.03,
+  "target_iteration_half_width": 0.01
+}
