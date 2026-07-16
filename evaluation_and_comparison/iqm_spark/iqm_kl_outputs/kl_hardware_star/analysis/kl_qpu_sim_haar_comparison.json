@@ -1,0 +1,88 @@
+{
+  "comparison_csv": "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_star/analysis/kl_qpu_sim_haar_comparison.csv",
+  "protocol": {
+    "ansatzes": [
+      "ansatz_star"
+    ],
+    "bootstrap_trials": 5000,
+    "confidence_levels": [
+      0.9,
+      0.95
+    ],
+    "depths": [
+      2,
+      4,
+      6
+    ],
+    "eps": 1e-12,
+    "iterations": 2,
+    "methodology": "evaluation_and_comparison/iqm_spark/iqm_kl_hardware_methodology.html",
+    "n_bins": 400,
+    "n_samples": 60,
+    "num_qubits": 5,
+    "seed": 42,
+    "shots": 2048
+  },
+  "rows": [
+    {
+      "ansatz": "ansatz_star",
+      "data_dir": "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_star/iteration_2",
+      "delta_kl_haar_qpu_minus_sim": 0.0526317392805814,
+      "depth": 2,
+      "eps": 1e-12,
+      "f_gap_mean_abs": 0.011595589350611038,
+      "f_gap_rmse": 0.014985789516165852,
+      "f_qpu_mean": 0.030950442030269403,
+      "f_sim_mean": 0.029895568871637225,
+      "kl_qpu_haar": 0.5602935182864133,
+      "kl_qpu_sim": 5.2022622122672875,
+      "kl_sim_haar": 0.5076617790058319,
+      "kl_sim_qpu": 9.169793857503278,
+      "n_bins": 400,
+      "n_qubits": 5,
+      "n_samples": 60,
+      "seed": 242,
+      "shots": 2048
+    },
+    {
+      "ansatz": "ansatz_star",
+      "data_dir": "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_star/iteration_2",
+      "delta_kl_haar_qpu_minus_sim": 0.465477764345006,
+      "depth": 4,
+      "eps": 1e-12,
+      "f_gap_mean_abs": 0.01363270876575196,
+      "f_gap_rmse": 0.017234617190340768,
+      "f_qpu_mean": 0.03037488675971145,
+      "f_sim_mean": 0.028077450515558742,
+      "kl_qpu_haar": 0.9735626936470282,
+      "kl_qpu_sim": 9.233170052076158,
+      "kl_sim_haar": 0.5080849293020222,
+      "kl_sim_qpu": 15.197293685320457,
+      "n_bins": 400,
+      "n_qubits": 5,
+      "n_samples": 60,
+      "seed": 442,
+      "shots": 2048
+    },
+    {
+      "ansatz": "ansatz_star",
+      "data_dir": "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_star/iteration_2",
+      "delta_kl_haar_qpu_minus_sim": 0.7606922892680034,
+      "depth": 6,
+      "eps": 1e-12,
+      "f_gap_mean_abs": 0.018400115406199777,
+      "f_gap_rmse": 0.024853378827111593,
+      "f_qpu_mean": 0.030000109197398483,
+      "f_sim_mean": 0.02972683389406667,
+      "kl_qpu_haar": 1.2316113153131032,
+      "kl_qpu_sim": 2.180195494924825,
+      "kl_sim_haar": 0.47091902604509983,
+      "kl_sim_qpu": 16.751417636965353,
+      "n_bins": 400,
+      "n_qubits": 5,
+      "n_samples": 60,
+      "seed": 642,
+      "shots": 2048
+    }
+  ]
+}

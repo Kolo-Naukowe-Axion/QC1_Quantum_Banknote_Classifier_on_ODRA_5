@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,10 +15,16 @@ from qiskit import QuantumCircuit
 
 from qbanknote.ansatzes import trimmed_reverse_q0_param_count
 from qbanknote.data import load_fold_arrays
-from qbanknote.evaluation import append_csv_row, ansatz_key, read_csv_or_empty
+from qbanknote.evaluation import (
+    append_csv_row,
+    ansatz_key,
+    is_retryable_hardware_error,
+    read_csv_or_empty,
+    retry_wait_seconds,
+)
 from qbanknote.iqm import run_circuits_on_backend, transpile_for_backend
 from qbanknote.paths import find_project_root
-from qbanknote.progress import report_progress
+from qbanknote.progress import progress_bar, report_progress
 from qbanknote.tomography import (
     add_tomography_rotations,
     all_basis_settings,
@@ -37,6 +44,9 @@ BASIS_ORDER: tuple[BasisName, ...] = ("Z", "X", "Y")
 
 class KlPilotFallbackError(RuntimeError):
     """Raised when a KL pilot stage cannot meet its target within the tested grid."""
+
+
+KlJobKey = tuple[str, int]
 
 
 # ---------------------------------------------------------------------------
@@ -1059,6 +1069,56 @@ def bind_ansatz(
     return qc.assign_parameters(bind_map, inplace=False)
 
 
+def _tomography_with_retries(
+    state_circuit: QuantumCircuit,
+    backend,
+    *,
+    n_qubits: int,
+    shots: int,
+    optimization_level: int,
+    seed_transpiler: int | None,
+    max_circuits_per_job: int,
+    label: str = "",
+    hardware_retries: int = 6,
+    retry_wait_seconds_initial: float = 60.0,
+    retry_wait_seconds_max: float = 600.0,
+) -> tuple[np.ndarray, np.ndarray, dict[str, float]]:
+    max_attempts = hardware_retries + 1
+    last_exc: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return tomography_density_matrices(
+                state_circuit,
+                backend,
+                n_qubits=n_qubits,
+                shots=shots,
+                optimization_level=optimization_level,
+                seed_transpiler=seed_transpiler,
+                max_circuits_per_job=max_circuits_per_job,
+                label=label,
+            )
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:
+            last_exc = exc
+            retryable = is_retryable_hardware_error(exc)
+            if attempt >= max_attempts or not retryable:
+                raise
+            wait_seconds = retry_wait_seconds(
+                attempt,
+                initial_wait_seconds=retry_wait_seconds_initial,
+                max_wait_seconds=retry_wait_seconds_max,
+            )
+            print(
+                f"    tomography retry {attempt}/{hardware_retries} "
+                f"({label}): {exc}; waiting {wait_seconds:.0f}s",
+                flush=True,
+            )
+            time.sleep(wait_seconds)
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("tomography failed without an exception")
+
 def sample_hardware_fidelities(
     backend,
     ansatz_fn: Callable[[int, int], QuantumCircuit],
@@ -1073,12 +1133,23 @@ def sample_hardware_fidelities(
     ansatz_label: str = "",
     completed_samples: set[int] | None = None,
     on_sample_complete: Callable[[dict[str, object]], None] | None = None,
+    hardware_retries: int = 6,
+    retry_wait_seconds_initial: float = 60.0,
+    retry_wait_seconds_max: float = 600.0,
+    show_progress: bool = True,
 ) -> list[dict[str, object]]:
     qc_template = ansatz_fn(n_qubits, depth)
     n_params = len(qc_template.parameters)
     rng = np.random.default_rng(seed)
     rows: list[dict[str, object]] = []
     skip_samples = completed_samples or set()
+    pending = n_samples - len(skip_samples)
+    sample_bar = progress_bar(
+        total=pending,
+        desc=f"{ansatz_label} depth={depth}",
+        unit="pair",
+        disable=not show_progress or pending == 0,
+    )
 
     for sample_index in range(n_samples):
         theta_a = rng.uniform(0.0, 2.0 * np.pi, n_params)
@@ -1091,10 +1162,11 @@ def sample_hardware_fidelities(
 
         print(
             f"\n  sample {sample_index + 1}/{n_samples} "
-            f"({ansatz_label}, depth={depth})"
+            f"({ansatz_label}, depth={depth})",
+            flush=True,
         )
 
-        rho_a_lin, rho_a_phys, diag_a = tomography_density_matrices(
+        rho_a_lin, rho_a_phys, diag_a = _tomography_with_retries(
             bound_a,
             backend,
             n_qubits=n_qubits,
@@ -1103,8 +1175,11 @@ def sample_hardware_fidelities(
             seed_transpiler=seed_transpiler,
             max_circuits_per_job=max_circuits_per_job,
             label=f"{ansatz_label} state A",
+            hardware_retries=hardware_retries,
+            retry_wait_seconds_initial=retry_wait_seconds_initial,
+            retry_wait_seconds_max=retry_wait_seconds_max,
         )
-        rho_b_lin, rho_b_phys, diag_b = tomography_density_matrices(
+        rho_b_lin, rho_b_phys, diag_b = _tomography_with_retries(
             bound_b,
             backend,
             n_qubits=n_qubits,
@@ -1113,6 +1188,9 @@ def sample_hardware_fidelities(
             seed_transpiler=seed_transpiler,
             max_circuits_per_job=max_circuits_per_job,
             label=f"{ansatz_label} state B",
+            hardware_retries=hardware_retries,
+            retry_wait_seconds_initial=retry_wait_seconds_initial,
+            retry_wait_seconds_max=retry_wait_seconds_max,
         )
 
         f_lin = hardware_overlap(rho_a_lin, rho_b_lin)
@@ -1139,9 +1217,10 @@ def sample_hardware_fidelities(
         rows.append(row)
         if on_sample_complete is not None:
             on_sample_complete(row)
+        sample_bar.update(1)
 
+    sample_bar.close()
     return rows
-
 
 def compute_kl_for_fidelities(
     fidelities: np.ndarray,
@@ -1308,6 +1387,78 @@ def completed_kl_jobs(summary_path: Path) -> set[tuple[str, int]]:
         for row in frame.itertuples(index=False)
     }
 
+
+def count_kl_job_samples(fidelities_path: Path, ansatz: str, depth: int) -> int:
+    return len(completed_kl_samples(fidelities_path, ansatz, depth))
+
+def read_kl_job_summary_row(
+    summary_path: Path,
+    ansatz: str,
+    depth: int,
+) -> dict[str, object] | None:
+    """Return the summary CSV row for one (ansatz, depth) job, if present."""
+    frame = read_csv_or_empty(summary_path)
+    if frame.empty:
+        return None
+    subset = frame[
+        (frame["ansatz"].astype(str) == str(ansatz))
+        & (frame["depth"].astype(int) == int(depth))
+    ]
+    if subset.empty:
+        return None
+    return subset.iloc[-1].to_dict()
+
+def kl_job_is_complete(
+    fidelities_path: Path,
+    summary_path: Path,
+    ansatz: str,
+    depth: int,
+    n_samples: int,
+    *,
+    n_bins: int | None = None,
+    eps: float | None = None,
+) -> bool:
+    """True when enough fidelity rows exist and the summary row matches expectations."""
+    job_key = kl_job_key(ansatz, depth)
+    if count_kl_job_samples(fidelities_path, ansatz, depth) < int(n_samples):
+        return False
+    if job_key not in completed_kl_jobs(summary_path):
+        return False
+    summary_row = read_kl_job_summary_row(summary_path, ansatz, depth)
+    if summary_row is None:
+        return False
+    if int(summary_row.get("n_samples", 0)) != int(n_samples):
+        return False
+    if n_bins is not None and int(summary_row.get("n_bins", -1)) != int(n_bins):
+        return False
+    if eps is not None and float(summary_row.get("eps", -1.0)) != float(eps):
+        return False
+    return True
+
+def upsert_kl_summary_row(summary_path: Path, row: dict[str, object]) -> None:
+    """Replace or append one (ansatz, depth) row in a KL summary CSV."""
+    import pandas as pd
+
+    new_frame = pd.DataFrame([row])
+    if not summary_path.exists() or summary_path.stat().st_size == 0:
+        new_frame.to_csv(summary_path, index=False)
+        return
+
+    existing = read_csv_or_empty(summary_path)
+    if existing.empty:
+        new_frame.to_csv(summary_path, index=False)
+        return
+
+    mask = (existing["ansatz"].astype(str) == str(row["ansatz"])) & (
+        existing["depth"].astype(int) == int(row["depth"])
+    )
+    kept = existing.loc[~mask]
+    columns = list(dict.fromkeys([*kept.columns.tolist(), *new_frame.columns.tolist()]))
+    combined = pd.concat(
+        [kept.reindex(columns=columns), new_frame.reindex(columns=columns)],
+        ignore_index=True,
+    )
+    combined.to_csv(summary_path, index=False)
 
 def completed_kl_samples(
     fidelities_path: Path,
@@ -1657,6 +1808,13 @@ def run_iqm_kl_sweep(
     verbose: bool = False,
     progress_callback: Callable[[str, int, int], None] | None = None,
     manifest_extra: dict[str, object] | None = None,
+    shots_by_job: dict[KlJobKey, int] | None = None,
+    n_samples_by_job: dict[KlJobKey, int] | None = None,
+    jobs_filter: set[KlJobKey] | None = None,
+    hardware_retries: int = 6,
+    retry_wait_seconds_initial: float = 60.0,
+    retry_wait_seconds_max: float = 600.0,
+    show_sample_progress: bool = True,
 ) -> Path:
     """Run KL expressibility hardware sweep with resumable CSV artifacts."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1664,13 +1822,71 @@ def run_iqm_kl_sweep(
     fidelities_path = output_dir / "iqm_kl_fidelities.csv"
     manifest_path = output_dir / "run_manifest.json"
 
-    completed = completed_kl_jobs(summary_path) if resume else set()
     jobs = [(ansatz_name, depth) for depth in depths for ansatz_name in ansatz_names]
+    if jobs_filter is not None:
+        jobs = [job for job in jobs if job in jobs_filter]
     total_jobs = len(jobs)
-    done_jobs = sum(1 for job in jobs if job in completed)
+    done_jobs = 0
+    resolved_shots_by_job: dict[str, int] = {}
+    resolved_samples_by_job: dict[str, int] = {}
+
+    def _write_manifest(*, jobs_completed: int) -> None:
+        manifest = {
+            "source_script": "scripts/run_iqm_kl_expressibility.py",
+            "method": "hardware_hardware_overlap_tomography",
+            "fidelity_definition": "Tr(rho_a @ rho_b) from full 3^n Pauli tomography",
+            "kl_direction": "P_hardware || P_Haar",
+            "n_qubits": n_qubits,
+            "depths": list(depths),
+            "ansatzes": list(ansatz_names),
+            "n_samples": n_samples,
+            "shots": shots,
+            "n_bins": n_bins,
+            "eps": eps,
+            "seed": seed,
+            "optimization_level": optimization_level,
+            "max_circuits_per_job": max_circuits_per_job,
+            "hardware_retries": hardware_retries,
+            "retry_wait_seconds_initial": retry_wait_seconds_initial,
+            "retry_wait_seconds_max": retry_wait_seconds_max,
+            "circuits_per_fidelity_sample": circuits_per_fidelity_sample(n_qubits),
+            "total_tomography_circuits": total_expressibility_circuits(
+                len(ansatz_names),
+                len(depths),
+                n_samples,
+                n_qubits,
+            ),
+            "jobs_completed": jobs_completed,
+            "jobs_total": total_jobs,
+            "outputs": ["iqm_kl_results.csv", "iqm_kl_fidelities.csv"],
+        }
+        if shots_by_job:
+            manifest["shots_by_job"] = resolved_shots_by_job
+        if n_samples_by_job:
+            manifest["n_samples_by_job"] = resolved_samples_by_job
+        if manifest_extra:
+            manifest.update(manifest_extra)
+        write_mw_manifest(manifest_path, backend=backend, manifest=manifest)
 
     for ansatz_name, depth in jobs:
-        if (ansatz_name, depth) in completed:
+        job_key = kl_job_key(ansatz_name, depth)
+        job_shots = int((shots_by_job or {}).get(job_key, shots))
+        job_n_samples = int((n_samples_by_job or {}).get(job_key, n_samples))
+        resolved_shots_by_job[f"{ansatz_name}:depth={depth}"] = job_shots
+        resolved_samples_by_job[f"{ansatz_name}:depth={depth}"] = job_n_samples
+
+        if resume and kl_job_is_complete(
+            fidelities_path,
+            summary_path,
+            ansatz_name,
+            depth,
+            job_n_samples,
+            n_bins=n_bins,
+            eps=eps,
+        ):
+            done_jobs += 1
+            report_progress(progress_callback, "kl_jobs", done_jobs, total_jobs)
+            _write_manifest(jobs_completed=done_jobs)
             continue
 
         depth_seed = kl_depth_seed(seed, depth, ansatz_name)
@@ -1682,11 +1898,15 @@ def run_iqm_kl_sweep(
         if saved_samples and verbose:
             print(
                 f"Resuming {ansatz_name} depth={depth}: "
-                f"{len(saved_samples)}/{n_samples} samples on disk",
+                f"{len(saved_samples)}/{job_n_samples} samples on disk",
                 flush=True,
             )
         elif verbose:
-            print(f"Running {ansatz_name} depth={depth}", flush=True)
+            print(
+                f"Running {ansatz_name} depth={depth} "
+                f"(shots={job_shots}, n_samples={job_n_samples})",
+                flush=True,
+            )
 
         def _persist_sample(row: dict[str, object]) -> None:
             append_csv_row(
@@ -1699,44 +1919,41 @@ def run_iqm_kl_sweep(
             ansatz_fns[ansatz_name],
             n_qubits=n_qubits,
             depth=depth,
-            n_samples=n_samples,
+            n_samples=job_n_samples,
             seed=depth_seed,
-            shots=shots,
+            shots=job_shots,
             optimization_level=optimization_level,
             seed_transpiler=seed_transpiler,
             max_circuits_per_job=max_circuits_per_job,
             ansatz_label=ansatz_name,
             completed_samples=saved_samples,
-            on_sample_complete=_persist_sample if resume else None,
+            on_sample_complete=_persist_sample,
+            hardware_retries=hardware_retries,
+            retry_wait_seconds_initial=retry_wait_seconds_initial,
+            retry_wait_seconds_max=retry_wait_seconds_max,
+            show_progress=show_sample_progress,
         )
-
-        if not resume:
-            for row in new_rows:
-                append_csv_row(
-                    fidelities_path,
-                    fidelity_row_to_csv(ansatz_name, depth, row),
-                )
 
         sample_rows = existing_rows + new_rows
         sample_rows.sort(key=lambda row: int(row["sample_index"]))
-        if len(sample_rows) < n_samples:
+        if len(sample_rows) < job_n_samples:
             raise RuntimeError(
                 f"Incomplete KL job {ansatz_name} depth={depth}: "
-                f"expected {n_samples} samples, got {len(sample_rows)}"
+                f"expected {job_n_samples} samples, got {len(sample_rows)}"
             )
 
         result = aggregate_kl_from_sample_rows(
-            sample_rows[:n_samples],
+            sample_rows[:job_n_samples],
             n_qubits=n_qubits,
             n_bins=n_bins,
             eps=eps,
         )
-        append_csv_row(
+        upsert_kl_summary_row(
             summary_path,
             kl_summary_row(
                 ansatz=ansatz_name,
                 depth=depth,
-                shots=shots,
+                shots=job_shots,
                 seed=depth_seed,
                 n_bins=n_bins,
                 eps=eps,
@@ -1746,36 +1963,42 @@ def run_iqm_kl_sweep(
 
         done_jobs += 1
         report_progress(progress_callback, "kl_jobs", done_jobs, total_jobs)
+        _write_manifest(jobs_completed=done_jobs)
 
-    manifest = {
-        "source_script": "scripts/run_iqm_kl_expressibility.py",
-        "method": "hardware_hardware_overlap_tomography",
-        "fidelity_definition": "Tr(rho_a @ rho_b) from full 3^n Pauli tomography",
-        "kl_direction": "P_hardware || P_Haar",
-        "n_qubits": n_qubits,
-        "depths": list(depths),
-        "ansatzes": list(ansatz_names),
-        "n_samples": n_samples,
-        "shots": shots,
-        "n_bins": n_bins,
-        "eps": eps,
-        "seed": seed,
-        "optimization_level": optimization_level,
-        "max_circuits_per_job": max_circuits_per_job,
-        "circuits_per_fidelity_sample": circuits_per_fidelity_sample(n_qubits),
-        "total_tomography_circuits": total_expressibility_circuits(
-            len(ansatz_names),
-            len(depths),
-            n_samples,
-            n_qubits,
-        ),
-        "outputs": ["iqm_kl_results.csv", "iqm_kl_fidelities.csv"],
-    }
-    if manifest_extra:
-        manifest.update(manifest_extra)
-    write_mw_manifest(manifest_path, backend=backend, manifest=manifest)
     return output_dir
 
+def nested_job_int_map_to_flat(
+    nested: dict[str, dict[int, int]],
+) -> dict[KlJobKey, int]:
+    flat: dict[KlJobKey, int] = {}
+    for ansatz, depths in nested.items():
+        for depth, value in depths.items():
+            flat[kl_job_key(ansatz, int(depth))] = int(value)
+    return flat
+
+def flat_job_int_map_to_nested(
+    flat: dict[KlJobKey, int],
+) -> dict[str, dict[int, int]]:
+    nested: dict[str, dict[int, int]] = {}
+    for (ansatz, depth), value in flat.items():
+        nested.setdefault(str(ansatz), {})[int(depth)] = int(value)
+    return nested
+
+def protocol_by_job_to_flat_maps(
+    protocol_by_job: dict[str, dict[str, object]],
+) -> tuple[dict[KlJobKey, int], dict[KlJobKey, int], dict[KlJobKey, int]]:
+    shots_by_job: dict[KlJobKey, int] = {}
+    n_samples_by_job: dict[KlJobKey, int] = {}
+    iterations_by_job: dict[KlJobKey, int] = {}
+    for ansatz, depths in protocol_by_job.items():
+        for depth_str, settings in depths.items():
+            if not isinstance(settings, dict):
+                raise ValueError(f"Invalid protocol entry for {ansatz} depth={depth_str}")
+            key = kl_job_key(ansatz, int(depth_str))
+            shots_by_job[key] = int(settings["shots"])
+            n_samples_by_job[key] = int(settings["n_samples"])
+            iterations_by_job[key] = int(settings["iterations"])
+    return shots_by_job, n_samples_by_job, iterations_by_job
 
 def compute_kl_shot_stability(summary_df) -> tuple[object, object]:
     """Compare consecutive shot budgets for each ansatz/depth/sample setting."""
