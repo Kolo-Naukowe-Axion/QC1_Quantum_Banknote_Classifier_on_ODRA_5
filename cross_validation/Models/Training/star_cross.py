@@ -12,8 +12,8 @@
 # This notebook demonstrates a hybrid Variational Quantum Circuit (VQC) for binary classification using the banknote authentication dataset. The model leverages:
 # 
 # - **Feature encoding**: Angle encoding via RY rotations
-# - **Parametrized quantum circuit (VQC)**: Hardware-efficient ansatz with ring topology entanglement
-# - **Measurement**: Expectation value of the Pauli-Z observable on the first qubit
+# - **Parametrized quantum circuit (VQC)**: Hardware-efficient ansatz with star topology entanglement (central hub qubit)
+# - **Measurement**: Expectation value of the Pauli-Z observable on the hub qubit (qubit 2)
 # - **Classical optimizer**: Adam optimizer via PyTorch's automatic differentiation
 # 
 # The hybrid architecture uses Qiskit's `EstimatorQNN` bridged to PyTorch via `TorchConnector`, enabling seamless gradient-based training on a simulated quantum computer.
@@ -246,7 +246,7 @@ class HybridModel(nn.Module):
         """
         Create angle encoding feature map: |0⟩ → RY(x₀) ⊗ RY(x₁) ⊗ ... ⊗ RY(xₙ) |0⟩
 
-        Each classical feature x_i ∈ [0, π] is encoded as a rotation angle on qubit i.
+        Each classical feature x_i ∈ [-π/4, π/4] is encoded as a rotation angle on qubit i.
         This maps the feature vector to the amplitude of the quantum state.
 
         Parameters
@@ -336,7 +336,8 @@ for ANSATZ_DEPTH in DEPTHS:
     for fold in range(1, K_FOLDS + 1):
         log(f"\n--- FOLD {fold}/{K_FOLDS} ---")
 
-        # Ensure deterministic behavior and independent initialization for this specific fold
+        # Reset seeds so every fold starts from identical, deterministic weight
+        # initialization; only the data shuffling differs per fold (generator seeded below).
         set_random_seed(RANDOM_SEED)
 
         # 1. Load data from the Data directory
