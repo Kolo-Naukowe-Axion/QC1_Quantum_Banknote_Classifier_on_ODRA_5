@@ -314,6 +314,174 @@ def write_mw_manifest(
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
 
+STATEVECTOR_MW_RESULTS_CSV = "statevector_mw_results.csv"
+STATEVECTOR_MW_SCORES_CSV = "statevector_mw_scores.csv"
+
+_PAULI_X = np.array([[0, 1], [1, 0]], dtype=complex)
+_PAULI_Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+_PAULI_Z = np.array([[1, 0], [0, -1]], dtype=complex)
+
+
+def mw_depth_seed(base_seed: int, depth: int, ansatz: str) -> int:
+    """Per-job RNG seed shared by IQM and statevector Meyer-Wallach sweeps."""
+    return int(base_seed) + int(depth) * 1000 + (
+        1 if str(ansatz) == "ansatz_simulator" else 0
+    )
+
+
+def write_statevector_mw_manifest(
+    path: Path,
+    *,
+    manifest: dict[str, object],
+) -> None:
+    payload = {
+        "created_utc": datetime.now(tz=timezone.utc).isoformat(),
+        "backend": "Statevector",
+        **manifest,
+    }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def bloch_expectations_from_statevector(
+    psi: np.ndarray, n_qubits: int
+) -> tuple[list[float], list[float], list[float]]:
+    """Single-qubit Pauli expectations from a pure statevector."""
+    x_exp: list[float] = []
+    y_exp: list[float] = []
+    z_exp: list[float] = []
+    for i in range(n_qubits):
+        rho_i = single_qubit_reduced_density(psi, i, n_qubits)
+        x_exp.append(float(np.real(np.trace(rho_i @ _PAULI_X))))
+        y_exp.append(float(np.real(np.trace(rho_i @ _PAULI_Y))))
+        z_exp.append(float(np.real(np.trace(rho_i @ _PAULI_Z))))
+    return x_exp, y_exp, z_exp
+
+
+def compute_statevector_mw_scores(
+    ansatz_fn: Callable[[int, int], QuantumCircuit],
+    *,
+    n_qubits: int,
+    depth: int,
+    n_samples: int,
+    seed: int,
+) -> dict[str, object]:
+    """Exact Meyer-Wallach scores for random ansatz parameter samples."""
+    from qiskit.quantum_info import Statevector
+
+    qc = ansatz_fn(n_qubits, depth)
+    params = list(qc.parameters)
+    rng = np.random.default_rng(seed)
+
+    scores: list[float] = []
+    bloch_rows: list[dict[str, float]] = []
+
+    for sample_index in range(n_samples):
+        values = rng.uniform(0.0, 2.0 * math.pi, size=len(params))
+        bound = qc.assign_parameters(dict(zip(params, values)), inplace=False)
+        psi = Statevector.from_instruction(bound).data
+        score = meyer_wallach_score(psi, n_qubits)
+        x_exp, y_exp, z_exp = bloch_expectations_from_statevector(psi, n_qubits)
+        row: dict[str, float] = {"sample_index": float(sample_index), "mw_score": score}
+        for i in range(n_qubits):
+            row[f"x_q{i}"] = x_exp[i]
+            row[f"y_q{i}"] = y_exp[i]
+            row[f"z_q{i}"] = z_exp[i]
+        scores.append(score)
+        bloch_rows.append(row)
+
+    arr = np.array(scores, dtype=float)
+    return {
+        "mw_scores": scores,
+        "bloch_rows": bloch_rows,
+        "mw_avg": float(np.mean(arr)),
+        "mw_std": float(np.std(arr)),
+        "mw_sem": float(np.std(arr) / math.sqrt(n_samples)),
+        "mw_min": float(np.min(arr)),
+        "mw_max": float(np.max(arr)),
+        "depth": depth,
+        "n_qubits": n_qubits,
+        "n_params": len(params),
+        "n_samples": n_samples,
+    }
+
+
+def run_statevector_mw_sweep(
+    *,
+    ansatz_fns: dict[str, Callable[[int, int], QuantumCircuit]],
+    ansatz_names: list[str],
+    depths: list[int],
+    n_qubits: int,
+    n_samples: int,
+    seed: int,
+    output_dir: Path,
+    resume: bool = True,
+    verbose: bool = False,
+    progress_callback: Callable[[str, int, int], None] | None = None,
+    manifest_extra: dict[str, object] | None = None,
+) -> Path:
+    """Run exact statevector Meyer-Wallach sweep with resumable CSV artifacts."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = output_dir / STATEVECTOR_MW_RESULTS_CSV
+    scores_path = output_dir / STATEVECTOR_MW_SCORES_CSV
+    manifest_path = output_dir / "run_manifest.json"
+
+    completed = completed_mw_jobs(summary_path) if resume else set()
+    jobs = [(ansatz_name, depth) for depth in depths for ansatz_name in ansatz_names]
+    total_jobs = len(jobs)
+    done_jobs = sum(1 for job in jobs if job in completed)
+
+    for ansatz_name, depth in jobs:
+        if (ansatz_name, depth) in completed:
+            continue
+
+        if verbose:
+            print(f"Running {ansatz_name} depth={depth}", flush=True)
+
+        depth_seed = mw_depth_seed(seed, depth, ansatz_name)
+        result = compute_statevector_mw_scores(
+            ansatz_fns[ansatz_name],
+            n_qubits=n_qubits,
+            depth=depth,
+            n_samples=n_samples,
+            seed=depth_seed,
+        )
+
+        summary_row = summary_row_from_result(
+            ansatz=ansatz_name,
+            depth=depth,
+            shots=0,
+            seed=depth_seed,
+            result=result,
+        )
+        append_csv_row(summary_path, summary_row)
+
+        for bloch in result["bloch_rows"]:
+            append_csv_row(
+                scores_path,
+                bloch_row_to_score_row(ansatz_name, depth, bloch),
+            )
+
+        done_jobs += 1
+        report_progress(progress_callback, "mw_jobs", done_jobs, total_jobs)
+
+    manifest = {
+        "source_script": "scripts/run_statevector_meyer_wallach.py",
+        "method": "exact_statevector",
+        "n_qubits": n_qubits,
+        "depths": list(depths),
+        "ansatzes": list(ansatz_names),
+        "n_samples": n_samples,
+        "shots": 0,
+        "seed": seed,
+        "total_circuits": len(ansatz_names) * len(depths) * n_samples,
+        "outputs": [STATEVECTOR_MW_RESULTS_CSV, STATEVECTOR_MW_SCORES_CSV],
+    }
+    if manifest_extra:
+        manifest.update(manifest_extra)
+    write_statevector_mw_manifest(manifest_path, manifest=manifest)
+    return output_dir
+
+
 def run_iqm_mw_sweep(
     backend,
     *,
