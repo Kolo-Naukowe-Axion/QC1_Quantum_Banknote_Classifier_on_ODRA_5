@@ -71,6 +71,62 @@ def odra_ansatz(n_qubits: int, depth: int) -> QuantumCircuit:
     return qc
 
 
+def odra_star_ansatz(n_qubits: int, depth: int) -> QuantumCircuit:
+    """Trimmed ODRA-native ansatz with star entanglement (center = q0).
+
+    This keeps the same trimmed parameter count as `odra_ansatz` so it can be
+    swapped into the existing training/evaluation pipeline, but uses CZ edges
+    from the central qubit (q0) to all others.
+    """
+    n_macro = depth // 2
+    theta = ParameterVector("theta", trimmed_reverse_q0_param_count(n_qubits, depth))
+    qc = QuantumCircuit(n_qubits)
+    p = 0
+
+    for j in range(n_macro):
+        last_layer = j == n_macro - 1
+
+        # Layer 1: local rotations
+        for i in range(n_qubits):
+            qc.ry(theta[p + i], i)
+        p += n_qubits
+
+        # Layer 2: star entanglement (RZ on targets + CZ from center q0).
+        # We consume n_qubits parameters like the ring version:
+        # - for i=0 we apply RZ on q0 (no CZ),
+        # - for i>0 we apply RZ on target i and CZ(0, i).
+        for i in range(n_qubits):
+            target = i
+            qc.rz(theta[p + i], target)
+            if i != 0:
+                qc.cz(0, target)
+        p += n_qubits
+
+        # Layer 3: local rotations
+        for i in range(n_qubits):
+            qc.rx(theta[p + i], i)
+        p += n_qubits
+
+        # Layer 4: second entangling layer. Match the trimmed parameter usage:
+        # full layers use n_qubits params; last layer uses only 2 params.
+        if last_layer:
+            for k in range(2):
+                target = k + 1  # q1, q2 (two star edges)
+                qc.ry(theta[p + k], target)
+                qc.cz(0, target)
+            p += 2
+        else:
+            for i in range(n_qubits):
+                target = i
+                qc.ry(theta[p + i], target)
+                if i != 0:
+                    qc.cz(0, target)
+            p += n_qubits
+
+    assert p == len(theta)
+    return qc
+
+
 def simulator_ansatz(n_qubits: int, depth: int) -> QuantumCircuit:
     """Trimmed simulator-optimized ansatz (CRX/CRY ring)."""
     n_macro = depth // 2
@@ -117,6 +173,7 @@ def simulator_ansatz(n_qubits: int, depth: int) -> QuantumCircuit:
 ansatz_odra = odra_ansatz
 ansatz_simulator = simulator_ansatz
 ansatz_Odra = odra_ansatz
+ansatz_odra_star = odra_star_ansatz
 
 
 def legacy_simulator_ring_ansatz(n_qubits: int, depth: int) -> QuantumCircuit:

@@ -18,7 +18,7 @@ import pandas as pd
 import torch
 from pandas.errors import ParserError
 
-from qbanknote.ansatzes import odra_ansatz, simulator_ansatz
+from qbanknote.ansatzes import odra_ansatz, odra_star_ansatz, simulator_ansatz
 from qbanknote.classification import evaluate_predictions
 from qbanknote.data import load_fold_arrays
 from qbanknote.iqm import build_iqm_estimator_model, calibration_set_id
@@ -27,18 +27,22 @@ from qbanknote.paths import find_project_root
 from qbanknote.progress import report_progress
 from qbanknote.weights import load_checkpoint_connector, load_checkpoint_hybrid, metric_weight_path
 
-ANSATZ_KEYS = ("odra", "simulator")
+ANSATZ_KEYS = ("odra", "odra_star", "simulator")
 ODRA_ANSATZ_NAME = "ansatz_odra"
+ODRA_STAR_ANSATZ_NAME = "ansatz_odra_star"
 SIMULATOR_ANSATZ_NAME = "ansatz_simulator"
 ANSATZ_NAMES = (ODRA_ANSATZ_NAME, SIMULATOR_ANSATZ_NAME)
 ANSATZ_ALIASES = {
     "odra": "odra",
     ODRA_ANSATZ_NAME: "odra",
+    "odra_star": "odra_star",
+    ODRA_STAR_ANSATZ_NAME: "odra_star",
     "simulator": "simulator",
     SIMULATOR_ANSATZ_NAME: "simulator",
 }
 ANSATZ_LABELS = {
     "odra": ODRA_ANSATZ_NAME,
+    "odra_star": ODRA_STAR_ANSATZ_NAME,
     "simulator": SIMULATOR_ANSATZ_NAME,
 }
 RUN_LEVEL_COLUMNS = [
@@ -128,6 +132,8 @@ def ansatz_factory(name: str):
     key = ansatz_key(name)
     if key == "odra":
         return odra_ansatz
+    if key == "odra_star":
+        return odra_star_ansatz
     if key == "simulator":
         return simulator_ansatz
     raise KeyError(f"Unknown ansatz: {name}")
