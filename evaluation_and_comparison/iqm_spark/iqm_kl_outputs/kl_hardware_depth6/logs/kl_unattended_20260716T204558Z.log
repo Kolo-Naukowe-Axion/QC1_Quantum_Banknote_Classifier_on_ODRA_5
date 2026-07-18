@@ -1,0 +1,3 @@
+ERROR: KL unattended job already running (pid 14010).
+  log:  /home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_depth6/logs/latest.log
+  stop: kill 14010

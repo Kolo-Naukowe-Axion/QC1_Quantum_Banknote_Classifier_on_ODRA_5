@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,7 +15,13 @@ from qiskit import QuantumCircuit
 
 from qbanknote.ansatzes import trimmed_reverse_q0_param_count
 from qbanknote.data import load_fold_arrays
-from qbanknote.evaluation import append_csv_row, ansatz_key, read_csv_or_empty
+from qbanknote.evaluation import (
+    append_csv_row,
+    ansatz_key,
+    is_retryable_hardware_error,
+    read_csv_or_empty,
+    retry_wait_seconds,
+)
 from qbanknote.iqm import run_circuits_on_backend, transpile_for_backend
 from qbanknote.paths import find_project_root
 from qbanknote.progress import report_progress
@@ -1026,6 +1033,58 @@ def bind_ansatz(
     return qc.assign_parameters(bind_map, inplace=False)
 
 
+def _tomography_with_retries(
+    state_circuit: QuantumCircuit,
+    backend,
+    *,
+    n_qubits: int,
+    shots: int,
+    optimization_level: int,
+    seed_transpiler: int | None,
+    max_circuits_per_job: int,
+    label: str = "",
+    hardware_retries: int = 6,
+    retry_wait_seconds_initial: float = 60.0,
+    retry_wait_seconds_max: float = 600.0,
+) -> tuple[np.ndarray, np.ndarray, dict[str, float]]:
+    """Call tomography_density_matrices with exponential backoff on transient QPU errors."""
+    max_attempts = hardware_retries + 1
+    last_exc: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return tomography_density_matrices(
+                state_circuit,
+                backend,
+                n_qubits=n_qubits,
+                shots=shots,
+                optimization_level=optimization_level,
+                seed_transpiler=seed_transpiler,
+                max_circuits_per_job=max_circuits_per_job,
+                label=label,
+            )
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:
+            last_exc = exc
+            retryable = is_retryable_hardware_error(exc)
+            if attempt >= max_attempts or not retryable:
+                raise
+            wait_seconds = retry_wait_seconds(
+                attempt,
+                initial_wait_seconds=retry_wait_seconds_initial,
+                max_wait_seconds=retry_wait_seconds_max,
+            )
+            print(
+                f"    tomography retry {attempt}/{hardware_retries} "
+                f"({label}): {exc}; waiting {wait_seconds:.0f}s",
+                flush=True,
+            )
+            time.sleep(wait_seconds)
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("tomography failed without an exception")
+
+
 def sample_hardware_fidelities(
     backend,
     ansatz_fn: Callable[[int, int], QuantumCircuit],
@@ -1040,6 +1099,9 @@ def sample_hardware_fidelities(
     ansatz_label: str = "",
     completed_samples: set[int] | None = None,
     on_sample_complete: Callable[[dict[str, object]], None] | None = None,
+    hardware_retries: int = 6,
+    retry_wait_seconds_initial: float = 60.0,
+    retry_wait_seconds_max: float = 600.0,
 ) -> list[dict[str, object]]:
     qc_template = ansatz_fn(n_qubits, depth)
     n_params = len(qc_template.parameters)
@@ -1061,7 +1123,7 @@ def sample_hardware_fidelities(
             f"({ansatz_label}, depth={depth})"
         )
 
-        rho_a_lin, rho_a_phys, diag_a = tomography_density_matrices(
+        rho_a_lin, rho_a_phys, diag_a = _tomography_with_retries(
             bound_a,
             backend,
             n_qubits=n_qubits,
@@ -1070,8 +1132,11 @@ def sample_hardware_fidelities(
             seed_transpiler=seed_transpiler,
             max_circuits_per_job=max_circuits_per_job,
             label=f"{ansatz_label} state A",
+            hardware_retries=hardware_retries,
+            retry_wait_seconds_initial=retry_wait_seconds_initial,
+            retry_wait_seconds_max=retry_wait_seconds_max,
         )
-        rho_b_lin, rho_b_phys, diag_b = tomography_density_matrices(
+        rho_b_lin, rho_b_phys, diag_b = _tomography_with_retries(
             bound_b,
             backend,
             n_qubits=n_qubits,
@@ -1080,6 +1145,9 @@ def sample_hardware_fidelities(
             seed_transpiler=seed_transpiler,
             max_circuits_per_job=max_circuits_per_job,
             label=f"{ansatz_label} state B",
+            hardware_retries=hardware_retries,
+            retry_wait_seconds_initial=retry_wait_seconds_initial,
+            retry_wait_seconds_max=retry_wait_seconds_max,
         )
 
         f_lin = hardware_overlap(rho_a_lin, rho_b_lin)
@@ -1320,6 +1388,9 @@ def run_iqm_kl_sweep(
     verbose: bool = False,
     progress_callback: Callable[[str, int, int], None] | None = None,
     manifest_extra: dict[str, object] | None = None,
+    hardware_retries: int = 6,
+    retry_wait_seconds_initial: float = 60.0,
+    retry_wait_seconds_max: float = 600.0,
 ) -> Path:
     """Run KL expressibility hardware sweep with resumable CSV artifacts."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1371,6 +1442,9 @@ def run_iqm_kl_sweep(
             ansatz_label=ansatz_name,
             completed_samples=saved_samples,
             on_sample_complete=_persist_sample if resume else None,
+            hardware_retries=hardware_retries,
+            retry_wait_seconds_initial=retry_wait_seconds_initial,
+            retry_wait_seconds_max=retry_wait_seconds_max,
         )
 
         if not resume:

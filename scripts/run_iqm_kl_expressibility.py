@@ -70,6 +70,24 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--hardware-retries",
+        type=int,
+        default=6,
+        help="Retry transient QPU/tomography failures this many times (default: 6).",
+    )
+    parser.add_argument(
+        "--retry-wait-seconds",
+        type=float,
+        default=60.0,
+        help="Initial backoff between hardware retries in seconds (default: 60).",
+    )
+    parser.add_argument(
+        "--retry-max-wait-seconds",
+        type=float,
+        default=600.0,
+        help="Maximum backoff between hardware retries in seconds (default: 600).",
+    )
     parser.add_argument("--iqm-token", default=None)
     parser.add_argument(
         "--iqm-url",
@@ -146,11 +164,17 @@ def main() -> None:
             resume=args.resume,
             verbose=not args.quiet,
             progress_callback=progress_callback,
+            hardware_retries=args.hardware_retries,
+            retry_wait_seconds_initial=args.retry_wait_seconds,
+            retry_wait_seconds_max=args.retry_max_wait_seconds,
             manifest_extra={
                 "run_id": run_id,
                 "iteration": iteration,
                 "iqm_url": args.iqm_url,
                 "protocol_json": str(args.protocol_json) if args.protocol_json else None,
+                "hardware_retries": args.hardware_retries,
+                "retry_wait_seconds_initial": args.retry_wait_seconds,
+                "retry_wait_seconds_max": args.retry_max_wait_seconds,
             },
         )
         if args.iterations > 1:

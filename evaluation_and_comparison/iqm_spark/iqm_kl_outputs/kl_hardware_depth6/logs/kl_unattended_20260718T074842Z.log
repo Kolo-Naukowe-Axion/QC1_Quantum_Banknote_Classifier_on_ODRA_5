@@ -1,0 +1,21 @@
+=== KL unattended study ===
+Started UTC:  2026-07-18T07:48:42Z
+Python:       uv run python
+Run ID:       kl_hardware_depth6
+Run output:   /home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_depth6
+Ansatzes:     ansatz_odra ansatz_simulator
+Depths:       6
+Samples/job:  60
+Shots:        2048
+Bins:         75
+Iterations:   2
+Retries:      6
+Est. pairs:   240  (~16.0 h @ ~4 min/pair)
+Log:          /home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_depth6/logs/kl_unattended_20260718T074842Z.log
+
+[qpu] Starting sweep (both ansatze, resume enabled)...
+
+[iteration 1/2] -> /home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_depth6/iteration_1
+
+[iteration 2/2] -> /home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_depth6/iteration_2
+Resuming ansatz_odra depth=6: 51/60 samples on disk

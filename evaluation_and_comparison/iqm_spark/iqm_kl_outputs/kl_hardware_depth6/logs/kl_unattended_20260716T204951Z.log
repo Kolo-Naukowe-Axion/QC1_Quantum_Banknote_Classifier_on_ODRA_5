@@ -1,0 +1,401 @@
+=== KL unattended study ===
+Started UTC:  2026-07-16T20:49:51Z
+Python:       uv run python
+Run ID:       kl_hardware_depth6
+Run output:   /home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_depth6
+Ansatzes:     ansatz_odra ansatz_simulator
+Depths:       6
+Samples/job:  60
+Shots:        2048
+Bins:         75
+Iterations:   2
+Retries:      6
+Est. pairs:   240  (~16.0 h @ ~4 min/pair)
+Log:          /home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_depth6/logs/kl_unattended_20260716T204951Z.log
+
+[qpu] Starting sweep (both ansatze, resume enabled)...
+
+[iteration 1/2] -> /home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_depth6/iteration_1
+Running ansatz_odra depth=6
+
+  sample 1/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.9s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.2s on backend)
+    F (linear inv.)    = 0.0320
+    F (physical proj.) = 0.0315
+
+  sample 2/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.2s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.5s on backend)
+    F (linear inv.)    = 0.0355
+    F (physical proj.) = 0.0351
+
+  sample 3/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.6s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.9s on backend)
+    F (linear inv.)    = 0.0319
+    F (physical proj.) = 0.0321
+
+  sample 4/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.6s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.5s on backend)
+    F (linear inv.)    = 0.0335
+    F (physical proj.) = 0.0339
+
+  sample 5/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.8s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.6s on backend)
+    F (linear inv.)    = 0.0367
+    F (physical proj.) = 0.0363
+
+  sample 6/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (215.9s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (212.6s on backend)
+    F (linear inv.)    = 0.0305
+    F (physical proj.) = 0.0309
+
+  sample 7/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (212.7s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.0s on backend)
+    F (linear inv.)    = 0.0348
+    F (physical proj.) = 0.0341
+
+  sample 8/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.8s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.6s on backend)
+    F (linear inv.)    = 0.0325
+    F (physical proj.) = 0.0323
+
+  sample 9/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.8s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.2s on backend)
+    F (linear inv.)    = 0.0349
+    F (physical proj.) = 0.0343
+
+  sample 10/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.0s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.5s on backend)
+    F (linear inv.)    = 0.0336
+    F (physical proj.) = 0.0330
+
+  sample 11/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.7s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.7s on backend)
+    F (linear inv.)    = 0.0321
+    F (physical proj.) = 0.0317
+
+  sample 12/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.5s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.2s on backend)
+    F (linear inv.)    = 0.0316
+    F (physical proj.) = 0.0314
+
+  sample 13/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.9s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.9s on backend)
+    F (linear inv.)    = 0.0320
+    F (physical proj.) = 0.0320
+
+  sample 14/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.7s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.5s on backend)
+    F (linear inv.)    = 0.0340
+    F (physical proj.) = 0.0336
+
+  sample 15/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.8s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.8s on backend)
+    F (linear inv.)    = 0.0331
+    F (physical proj.) = 0.0324
+
+  sample 16/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.9s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.4s on backend)
+    F (linear inv.)    = 0.0306
+    F (physical proj.) = 0.0310
+
+  sample 17/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (215.9s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.4s on backend)
+    F (linear inv.)    = 0.0313
+    F (physical proj.) = 0.0313
+
+  sample 18/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (215.0s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.9s on backend)
+    F (linear inv.)    = 0.0360
+    F (physical proj.) = 0.0354
+
+  sample 19/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.8s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.9s on backend)
+    F (linear inv.)    = 0.0342
+    F (physical proj.) = 0.0333
+
+  sample 20/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.5s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.1s on backend)
+    F (linear inv.)    = 0.0330
+    F (physical proj.) = 0.0324
+
+  sample 21/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.0s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.7s on backend)
+    F (linear inv.)    = 0.0339
+    F (physical proj.) = 0.0343
+
+  sample 22/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (212.8s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.8s on backend)
+    F (linear inv.)    = 0.0308
+    F (physical proj.) = 0.0306
+
+  sample 23/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.5s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.3s on backend)
+    F (linear inv.)    = 0.0320
+    F (physical proj.) = 0.0317
+
+  sample 24/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.6s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.0s on backend)
+    F (linear inv.)    = 0.0320
+    F (physical proj.) = 0.0315
+
+  sample 25/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (215.4s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (218.9s on backend)
+    F (linear inv.)    = 0.0374
+    F (physical proj.) = 0.0364
+
+  sample 26/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.3s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.3s on backend)
+    F (linear inv.)    = 0.0311
+    F (physical proj.) = 0.0311
+
+  sample 27/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.5s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.4s on backend)
+    F (linear inv.)    = 0.0299
+    F (physical proj.) = 0.0301
+
+  sample 28/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.2s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (215.3s on backend)
+    F (linear inv.)    = 0.0347
+    F (physical proj.) = 0.0341
+
+  sample 29/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.8s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.0s on backend)
+    F (linear inv.)    = 0.0334
+    F (physical proj.) = 0.0327
+
+  sample 30/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.6s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.5s on backend)
+    F (linear inv.)    = 0.0322
+    F (physical proj.) = 0.0322
+
+  sample 31/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.6s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (216.7s on backend)
+    F (linear inv.)    = 0.0330
+    F (physical proj.) = 0.0328
+
+  sample 32/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.0s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.4s on backend)
+    F (linear inv.)    = 0.0331
+    F (physical proj.) = 0.0323
+
+  sample 33/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.2s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.0s on backend)
+    F (linear inv.)    = 0.0314
+    F (physical proj.) = 0.0312
+
+  sample 34/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.1s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (212.5s on backend)
+    F (linear inv.)    = 0.0350
+    F (physical proj.) = 0.0347
+
+  sample 35/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (212.8s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.5s on backend)
+    F (linear inv.)    = 0.0331
+    F (physical proj.) = 0.0325
+
+  sample 36/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.6s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.1s on backend)
+    F (linear inv.)    = 0.0332
+    F (physical proj.) = 0.0320
+
+  sample 37/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (212.8s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.5s on backend)
+    F (linear inv.)    = 0.0325
+    F (physical proj.) = 0.0321
+
+  sample 38/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.1s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.8s on backend)
+    F (linear inv.)    = 0.0301
+    F (physical proj.) = 0.0300
+
+  sample 39/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.7s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.6s on backend)
+    F (linear inv.)    = 0.0320
+    F (physical proj.) = 0.0319
+
+  sample 40/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.6s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.8s on backend)
+    F (linear inv.)    = 0.0304
+    F (physical proj.) = 0.0301
+
+  sample 41/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (212.3s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (212.9s on backend)
+    F (linear inv.)    = 0.0309
+    F (physical proj.) = 0.0306
+
+  sample 42/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.6s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.7s on backend)
+    F (linear inv.)    = 0.0323
+    F (physical proj.) = 0.0322
+
+  sample 43/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    tomography retry 1/6 (ansatz_odra state A): HTTPSConnectionPool(host='odra5.e-science.pl', port=443): Max retries exceeded with url: /api/v1/jobs/019f6dcb-5613-7fd3-ada0-0d84294cd242 (Caused by ConnectTimeoutError(<HTTPSConnection(host='odra5.e-science.pl', port=443) at 0x7f4398179ee0>, 'Connection to odra5.e-science.pl timed out. (connect timeout=120.0)')); waiting 60s
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+Traceback (most recent call last):
+  File "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/scripts/run_iqm_kl_expressibility.py", line 231, in <module>
+    main()
+  File "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/scripts/run_iqm_kl_expressibility.py", line 149, in main
+    run_iqm_kl_sweep(
+  File "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/src/qbanknote/metrics.py", line 1431, in run_iqm_kl_sweep
+    new_rows = sample_hardware_fidelities(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/src/qbanknote/metrics.py", line 1126, in sample_hardware_fidelities
+    rho_a_lin, rho_a_phys, diag_a = _tomography_with_retries(
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/src/qbanknote/metrics.py", line 1055, in _tomography_with_retries
+    return tomography_density_matrices(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/src/qbanknote/tomography.py", line 206, in tomography_density_matrices
+    counts = run_tomography_jobs(
+             ^^^^^^^^^^^^^^^^^^^^
+  File "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/src/qbanknote/tomography.py", line 176, in run_tomography_jobs
+    result = backend.run(batch, shots=shots).result()
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/.venv/lib/python3.12/site-packages/iqm/qiskit_iqm/iqm_provider.py", line 123, in run
+    run_request = self.create_run_request(run_input, **options)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/.venv/lib/python3.12/site-packages/iqm/qiskit_iqm/iqm_provider.py", line 201, in create_run_request
+    default_calset_id = self.client.get_dynamic_quantum_architecture(None).calibration_set_id
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/.venv/lib/python3.12/site-packages/iqm/iqm_client/iqm_client.py", line 353, in get_dynamic_quantum_architecture
+    dynamic_quantum_architecture = self._iqm_server_client.get_dynamic_quantum_architecture(_calibration_set_id)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/.venv/lib/python3.12/site-packages/iqm/iqm_server_client/iqm_server_client.py", line 298, in get_dynamic_quantum_architecture
+    return self._deserialize_response(response, DynamicQuantumArchitecture)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/.venv/lib/python3.12/site-packages/iqm/iqm_server_client/iqm_server_client.py", line 607, in _deserialize_response
+    model = model_class.model_validate_json(response.text)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/.venv/lib/python3.12/site-packages/pydantic/main.py", line 782, in model_validate_json
+    return cls.__pydantic_validator__.validate_json(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+pydantic_core._pydantic_core.ValidationError: 1 validation error for DynamicQuantumArchitecture
+  Invalid JSON: expected value at line 2 column 1 [type=json_invalid, input_value='\n<!DOCTYPE html>\n<html...>\n\t</body>\n</html>\n', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/json_invalid
