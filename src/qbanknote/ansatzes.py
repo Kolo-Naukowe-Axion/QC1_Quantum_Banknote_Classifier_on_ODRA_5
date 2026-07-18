@@ -1,6 +1,8 @@
-"""Canonical trimmed ansatze and legacy ring variants."""
+"""Canonical trimmed ansatze, star topology, and legacy ring variants."""
 
 from __future__ import annotations
+
+from collections.abc import Callable
 
 from qiskit import QuantumCircuit
 from qiskit.circuit import ParameterVector
@@ -69,6 +71,62 @@ def odra_ansatz(n_qubits: int, depth: int) -> QuantumCircuit:
     return qc
 
 
+def odra_star_ansatz(n_qubits: int, depth: int) -> QuantumCircuit:
+    """Trimmed ODRA-native ansatz with star entanglement (center = q0).
+
+    This keeps the same trimmed parameter count as `odra_ansatz` so it can be
+    swapped into the existing training/evaluation pipeline, but uses CZ edges
+    from the central qubit (q0) to all others.
+    """
+    n_macro = depth // 2
+    theta = ParameterVector("theta", trimmed_reverse_q0_param_count(n_qubits, depth))
+    qc = QuantumCircuit(n_qubits)
+    p = 0
+
+    for j in range(n_macro):
+        last_layer = j == n_macro - 1
+
+        # Layer 1: local rotations
+        for i in range(n_qubits):
+            qc.ry(theta[p + i], i)
+        p += n_qubits
+
+        # Layer 2: star entanglement (RZ on targets + CZ from center q0).
+        # We consume n_qubits parameters like the ring version:
+        # - for i=0 we apply RZ on q0 (no CZ),
+        # - for i>0 we apply RZ on target i and CZ(0, i).
+        for i in range(n_qubits):
+            target = i
+            qc.rz(theta[p + i], target)
+            if i != 0:
+                qc.cz(0, target)
+        p += n_qubits
+
+        # Layer 3: local rotations
+        for i in range(n_qubits):
+            qc.rx(theta[p + i], i)
+        p += n_qubits
+
+        # Layer 4: second entangling layer. Match the trimmed parameter usage:
+        # full layers use n_qubits params; last layer uses only 2 params.
+        if last_layer:
+            for k in range(2):
+                target = k + 1  # q1, q2 (two star edges)
+                qc.ry(theta[p + k], target)
+                qc.cz(0, target)
+            p += 2
+        else:
+            for i in range(n_qubits):
+                target = i
+                qc.ry(theta[p + i], target)
+                if i != 0:
+                    qc.cz(0, target)
+            p += n_qubits
+
+    assert p == len(theta)
+    return qc
+
+
 def simulator_ansatz(n_qubits: int, depth: int) -> QuantumCircuit:
     """Trimmed simulator-optimized ansatz (CRX/CRY ring)."""
     n_macro = depth // 2
@@ -115,6 +173,7 @@ def simulator_ansatz(n_qubits: int, depth: int) -> QuantumCircuit:
 ansatz_odra = odra_ansatz
 ansatz_simulator = simulator_ansatz
 ansatz_Odra = odra_ansatz
+ansatz_odra_star = odra_star_ansatz
 
 
 def legacy_simulator_ring_ansatz(n_qubits: int, depth: int) -> QuantumCircuit:
@@ -194,8 +253,64 @@ def expected_param_count(
     family: str = "simulator",
 ) -> int:
     """Return expected parameter count for a known ansatz variant."""
+    if variant == "star":
+        return star_param_count(n_qubits, depth)
     if variant == "trimmed":
         return trimmed_reverse_q0_param_count(n_qubits, depth)
     if variant == "legacy":
         return (depth // 2) * 4 * n_qubits
-    raise ValueError(f"Unknown variant {variant!r}; expected 'trimmed' or 'legacy'.")
+    raise ValueError(f"Unknown variant {variant!r}; expected 'star', 'trimmed', or 'legacy'.")
+
+
+STAR_ANSATZ_NAME = "ansatz_star"
+DEFAULT_STAR_ANSATZES = (STAR_ANSATZ_NAME,)
+
+# Hub qubit for the star topology (QB2 on IQM Spark / Odra 5).
+STAR_HUB_QUBIT = 2
+
+
+def star_param_count(n_qubits: int, depth: int) -> int:
+    """Parameter count for the star-topology ansatz at the given depth."""
+    # Three rotation layers (Rz-Rx-Rz) per depth block, plus a final Rz-Rx layer.
+    return n_qubits * depth * 3 + 2 * n_qubits
+
+
+def star_ansatz(n_qubits: int, depth: int) -> QuantumCircuit:
+    """Star-topology ansatz for IQM Spark (hub qubit QB2)."""
+    hub = STAR_HUB_QUBIT
+    theta = ParameterVector("theta", star_param_count(n_qubits, depth))
+    qc = QuantumCircuit(n_qubits)
+    p = 0
+
+    for _ in range(depth):
+        for i in range(n_qubits):
+            qc.rz(theta[p + i], i)
+        p += n_qubits
+        for i in range(n_qubits):
+            qc.rx(theta[p + i], i)
+        p += n_qubits
+        for i in range(n_qubits):
+            qc.rz(theta[p + i], i)
+        p += n_qubits
+        for target in range(n_qubits):
+            if target == hub:
+                continue
+            qc.cz(hub, target)
+        qc.barrier()
+
+    # Final rotation layer (makes every CZ fan useful); the trailing Rz would
+    # commute with the Z measurement, so only Rz + Rx are applied here.
+    for i in range(n_qubits):
+        qc.rz(theta[p + i], i)
+    p += n_qubits
+    for i in range(n_qubits):
+        qc.rx(theta[p + i], i)
+    p += n_qubits
+
+    assert p == len(theta)
+    return qc
+
+
+def star_ansatz_registry() -> dict[str, Callable[[int, int], QuantumCircuit]]:
+    """Return the QPU ansatz registry for star-only studies."""
+    return {STAR_ANSATZ_NAME: star_ansatz}

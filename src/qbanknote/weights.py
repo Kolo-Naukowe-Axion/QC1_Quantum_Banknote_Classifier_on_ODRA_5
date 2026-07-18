@@ -26,7 +26,7 @@ from qbanknote.model import HybridModel
 from qbanknote.paths import find_project_root
 
 ModelName = Literal["Odra", "Simulator"]
-AnsatzKey = Literal["odra", "simulator"]
+AnsatzKey = Literal["odra", "odra_star", "simulator"]
 Condition = Literal["Ideal", "Noise"]
 
 
@@ -64,7 +64,7 @@ def cv_weight_path(
 
 
 def metric_model_name(ansatz_name: AnsatzKey) -> ModelName:
-    return "Odra" if ansatz_name == "odra" else "Simulator"
+    return "Odra" if ansatz_name in {"odra", "odra_star"} else "Simulator"
 
 
 def metric_weight_path(

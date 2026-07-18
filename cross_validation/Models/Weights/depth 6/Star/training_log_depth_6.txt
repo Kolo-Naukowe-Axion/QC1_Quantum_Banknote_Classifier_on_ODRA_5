@@ -1,0 +1,66 @@
+================ DEPTH 6 (params=100) ================
+
+--- FOLD 1/5 ---
+    [epoch 05/30] avg_batch_loss=0.5850 | train_mse=0.5888 | train_acc=0.8988
+    [epoch 10/30] avg_batch_loss=0.5766 | train_mse=0.5753 | train_acc=0.8733
+    [epoch 15/30] avg_batch_loss=0.5734 | train_mse=0.5739 | train_acc=0.8687
+    [epoch 20/30] avg_batch_loss=0.5717 | train_mse=0.5781 | train_acc=0.8587
+    [epoch 25/30] avg_batch_loss=0.5745 | train_mse=0.5704 | train_acc=0.8842
+    [epoch 30/30] avg_batch_loss=0.5711 | train_mse=0.5720 | train_acc=0.8760
+Results fold 1 (Epoch 30):
+  Accuracy: 0.8364 | F1: 0.7783
+  -> Saved Epoch 20 weights to: ../Weights/depth 6/Star/fold_1/Star_fold_1_depth_6_epoch_20_weights.pth
+  -> Saved Epoch 30 weights to: ../Weights/depth 6/Star/fold_1/Star_fold_1_depth_6_epoch_30_weights.pth
+
+--- FOLD 2/5 ---
+    [epoch 05/30] avg_batch_loss=0.5830 | train_mse=0.5824 | train_acc=0.8569
+    [epoch 10/30] avg_batch_loss=0.5752 | train_mse=0.5812 | train_acc=0.8450
+    [epoch 15/30] avg_batch_loss=0.5773 | train_mse=0.5715 | train_acc=0.8924
+    [epoch 20/30] avg_batch_loss=0.5764 | train_mse=0.5708 | train_acc=0.8924
+    [epoch 25/30] avg_batch_loss=0.5726 | train_mse=0.5692 | train_acc=0.8842
+    [epoch 30/30] avg_batch_loss=0.5736 | train_mse=0.5701 | train_acc=0.8879
+Results fold 2 (Epoch 30):
+  Accuracy: 0.8945 | F1: 0.8711
+  -> Saved Epoch 20 weights to: ../Weights/depth 6/Star/fold_2/Star_fold_2_depth_6_epoch_20_weights.pth
+  -> Saved Epoch 30 weights to: ../Weights/depth 6/Star/fold_2/Star_fold_2_depth_6_epoch_30_weights.pth
+
+--- FOLD 3/5 ---
+    [epoch 05/30] avg_batch_loss=0.5907 | train_mse=0.5917 | train_acc=0.8470
+    [epoch 10/30] avg_batch_loss=0.5856 | train_mse=0.5762 | train_acc=0.8907
+    [epoch 15/30] avg_batch_loss=0.5790 | train_mse=0.5755 | train_acc=0.8852
+    [epoch 20/30] avg_batch_loss=0.5819 | train_mse=0.5733 | train_acc=0.8953
+    [epoch 25/30] avg_batch_loss=0.5771 | train_mse=0.5772 | train_acc=0.9062
+    [epoch 30/30] avg_batch_loss=0.5760 | train_mse=0.5767 | train_acc=0.9035
+Results fold 3 (Epoch 30):
+  Accuracy: 0.9124 | F1: 0.9032
+  -> Saved Epoch 20 weights to: ../Weights/depth 6/Star/fold_3/Star_fold_3_depth_6_epoch_20_weights.pth
+  -> Saved Epoch 30 weights to: ../Weights/depth 6/Star/fold_3/Star_fold_3_depth_6_epoch_30_weights.pth
+
+--- FOLD 4/5 ---
+    [epoch 05/30] avg_batch_loss=0.5855 | train_mse=0.5850 | train_acc=0.8588
+    [epoch 10/30] avg_batch_loss=0.5797 | train_mse=0.5880 | train_acc=0.9016
+    [epoch 15/30] avg_batch_loss=0.5786 | train_mse=0.5869 | train_acc=0.8971
+    [epoch 20/30] avg_batch_loss=0.5836 | train_mse=0.5963 | train_acc=0.9007
+    [epoch 25/30] avg_batch_loss=0.5732 | train_mse=0.5707 | train_acc=0.8989
+    [epoch 30/30] avg_batch_loss=0.5721 | train_mse=0.5726 | train_acc=0.8843
+Results fold 4 (Epoch 30):
+  Accuracy: 0.9015 | F1: 0.8831
+  -> Saved Epoch 20 weights to: ../Weights/depth 6/Star/fold_4/Star_fold_4_depth_6_epoch_20_weights.pth
+  -> Saved Epoch 30 weights to: ../Weights/depth 6/Star/fold_4/Star_fold_4_depth_6_epoch_30_weights.pth
+
+--- FOLD 5/5 ---
+    [epoch 05/30] avg_batch_loss=0.5887 | train_mse=0.5827 | train_acc=0.8843
+    [epoch 10/30] avg_batch_loss=0.5839 | train_mse=0.5788 | train_acc=0.9044
+    [epoch 15/30] avg_batch_loss=0.5803 | train_mse=0.5758 | train_acc=0.9044
+    [epoch 20/30] avg_batch_loss=0.5772 | train_mse=0.5830 | train_acc=0.8397
+    [epoch 25/30] avg_batch_loss=0.5802 | train_mse=0.5744 | train_acc=0.8752
+    [epoch 30/30] avg_batch_loss=0.5873 | train_mse=0.5800 | train_acc=0.8570
+Results fold 5 (Epoch 30):
+  Accuracy: 0.8723 | F1: 0.8372
+  -> Saved Epoch 20 weights to: ../Weights/depth 6/Star/fold_5/Star_fold_5_depth_6_epoch_20_weights.pth
+  -> Saved Epoch 30 weights to: ../Weights/depth 6/Star/fold_5/Star_fold_5_depth_6_epoch_30_weights.pth
+
+=== DEPTH 6 CV SUMMARY ===
+  Mean Accuracy: 0.8834 +/- 0.0269
+  Mean F1:       0.8546 +/- 0.0438
+  -> Training log saved to: ../Weights/depth 6/Star/training_log_depth_6.txt
