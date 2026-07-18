@@ -2200,12 +2200,15 @@ def sample_fidelity_one(
     seed_transpiler: int | None,
     max_circuits_per_job: int,
     label: str = "",
+    hardware_retries: int = 6,
+    retry_wait_seconds_initial: float = 60.0,
+    retry_wait_seconds_max: float = 600.0,
 ) -> dict[str, object]:
     """Run full hardware tomography for one prepared ansatz state."""
     from qiskit.quantum_info import Statevector
 
     psi_ideal = Statevector.from_instruction(state_circuit).data
-    rho_lin, rho_phys, diagnostics = tomography_density_matrices(
+    rho_lin, rho_phys, diagnostics = _tomography_with_retries(
         state_circuit,
         backend,
         n_qubits=n_qubits,
@@ -2214,6 +2217,9 @@ def sample_fidelity_one(
         seed_transpiler=seed_transpiler,
         max_circuits_per_job=max_circuits_per_job,
         label=label,
+        hardware_retries=hardware_retries,
+        retry_wait_seconds_initial=retry_wait_seconds_initial,
+        retry_wait_seconds_max=retry_wait_seconds_max,
     )
     return {
         "fidelity_linear": state_fidelity_pure(psi_ideal, rho_lin),
@@ -2372,6 +2378,9 @@ def run_iqm_fidelity_sweep(
     verbose: bool = False,
     progress_callback: Callable[[str, int, int], None] | None = None,
     manifest_extra: dict[str, object] | None = None,
+    hardware_retries: int = 6,
+    retry_wait_seconds_initial: float = 60.0,
+    retry_wait_seconds_max: float = 600.0,
 ) -> Path:
     """Run a state-tomography fidelity hardware sweep with resumable CSV artifacts.
 
@@ -2428,6 +2437,9 @@ def run_iqm_fidelity_sweep(
                 seed_transpiler=seed_transpiler,
                 max_circuits_per_job=max_circuits_per_job,
                 label=f"{ansatz_name} depth={depth} sample {sample_index + 1}/{n_samples}",
+                hardware_retries=hardware_retries,
+                retry_wait_seconds_initial=retry_wait_seconds_initial,
+                retry_wait_seconds_max=retry_wait_seconds_max,
             )
             row["sample_index"] = sample_index
             append_csv_row(

@@ -1,0 +1,35 @@
+{
+  "ansatzes": [
+    "ansatz_odra",
+    "ansatz_simulator"
+  ],
+  "backend": "<iqm.qiskit_iqm.iqm_provider.IQMBackend object at 0x7f6cdbd1f7a0>",
+  "circuits_per_sample": 243,
+  "created_utc": "2026-07-18T11:00:40.141281+00:00",
+  "depths": [
+    2,
+    4,
+    6
+  ],
+  "fidelity_definition": "F = <psi_ideal | rho_hardware | psi_ideal> from full 3^n Pauli tomography with ansatz parameters drawn uniformly from [0, 2*pi] (same as MW/KL)",
+  "hardware_retries": 6,
+  "headline_metric": "f_phys_avg",
+  "iqm_url": "https://odra5.e-science.pl/",
+  "iteration": 1,
+  "max_circuits_per_job": 250,
+  "method": "hardware_state_tomography_fidelity",
+  "n_qubits": 5,
+  "n_samples": 10,
+  "optimization_level": 1,
+  "outputs": [
+    "iqm_fidelity_results.csv",
+    "iqm_fidelity_scores.csv"
+  ],
+  "protocol_json": null,
+  "run_id": "fidelity_hardware",
+  "seed": 42,
+  "shots": 1024,
+  "source_script": "scripts/pilot_state_fidelity.py",
+  "total_tomography_circuits": 14580,
+  "weight_sampling": "uniform_random_0_2pi"
+}

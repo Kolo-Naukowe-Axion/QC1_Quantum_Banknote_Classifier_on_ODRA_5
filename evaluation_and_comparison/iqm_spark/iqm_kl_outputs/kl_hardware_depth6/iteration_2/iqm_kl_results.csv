@@ -1,0 +1,2 @@
+ansatz,depth,n_qubits,n_samples,shots,seed,n_bins,eps,kl_physical,kl_linear,f_physical_mean,f_physical_std,f_linear_mean,f_linear_std
+ansatz_odra,6,5,60,2048,642,75,1e-12,1.8936638414228424,1.8936638414228424,0.03233369021466579,0.0015918800645550913,0.032581688463687856,0.0018396305145594845

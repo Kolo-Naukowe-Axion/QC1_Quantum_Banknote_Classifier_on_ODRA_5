@@ -19,3 +19,84 @@ Log:          /home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_C
 
 [iteration 2/2] -> /home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_depth6/iteration_2
 Resuming ansatz_odra depth=6: 51/60 samples on disk
+
+  sample 52/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.8s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.6s on backend)
+    F (linear inv.)    = 0.0331
+    F (physical proj.) = 0.0332
+
+  sample 53/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.2s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.5s on backend)
+    F (linear inv.)    = 0.0318
+    F (physical proj.) = 0.0320
+
+  sample 54/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (215.0s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (215.4s on backend)
+    F (linear inv.)    = 0.0332
+    F (physical proj.) = 0.0328
+
+  sample 55/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.5s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.3s on backend)
+    F (linear inv.)    = 0.0296
+    F (physical proj.) = 0.0298
+
+  sample 56/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.2s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.7s on backend)
+    F (linear inv.)    = 0.0343
+    F (physical proj.) = 0.0336
+
+  sample 57/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.8s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (215.0s on backend)
+    F (linear inv.)    = 0.0325
+    F (physical proj.) = 0.0325
+
+  sample 58/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.9s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (215.5s on backend)
+    F (linear inv.)    = 0.0325
+    F (physical proj.) = 0.0324
+
+  sample 59/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.9s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (213.9s on backend)
+    F (linear inv.)    = 0.0327
+    F (physical proj.) = 0.0325
+
+  sample 60/60 (ansatz_odra, depth=6)
+  [ansatz_odra state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.0s on backend)
+  [ansatz_odra state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+    batch done:  243/243  (214.3s on backend)
+    F (linear inv.)    = 0.0343
+    F (physical proj.) = 0.0336
+kl_jobs: 1/2
+Running ansatz_simulator depth=6
+
+  sample 1/60 (ansatz_simulator, depth=6)
+  [ansatz_simulator state A] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+Playlist execution:   0%|          | 0/2 [00:00<?, ?it/s]Playlist execution:  50%|█████     | 1/2 [00:00<00:00, 3355.44it/s]Playlist execution:  50%|█████     | 1/2 [00:01<00:01,  1.19s/it]  Playlist execution:  50%|█████     | 1/2 [00:02<00:02,  2.42s/it]Playlist execution:  50%|█████     | 1/2 [00:03<00:03,  3.62s/it]Playlist execution:  50%|█████     | 1/2 [00:04<00:04,  4.81s/it]Playlist execution:  50%|█████     | 1/2 [00:06<00:06,  6.01s/it]Playlist execution:  50%|█████     | 1/2 [00:07<00:07,  7.19s/it]Playlist execution:  50%|█████     | 1/2 [00:08<00:08,  8.42s/it]Playlist execution:  50%|█████     | 1/2 [00:09<00:09,  9.64s/it]Playlist execution:  50%|█████     | 1/2 [00:10<00:10, 10.80s/it]Playlist execution:  50%|█████     | 1/2 [00:11<00:11, 11.99s/it]Playlist execution:  50%|█████     | 1/2 [00:13<00:13, 13.15s/it]Playlist execution:  50%|█████     | 1/2 [00:14<00:14, 14.32s/it]Playlist execution:  50%|█████     | 1/2 [00:15<00:15, 15.50s/it]Playlist execution:  50%|█████     | 1/2 [00:16<00:16, 16.70s/it]Playlist execution:  50%|█████     | 1/2 [00:17<00:17, 17.86s/it]Playlist execution:  50%|█████     | 1/2 [00:19<00:19, 19.29s/it]Playlist execution:  50%|█████     | 1/2 [00:20<00:20, 20.51s/it]Playlist execution:  50%|█████     | 1/2 [00:21<00:21, 21.77s/it]Playlist execution:  50%|█████     | 1/2 [00:22<00:22, 22.96s/it]Playlist execution:  50%|█████     | 1/2 [00:24<00:24, 24.16s/it]Playlist execution:  50%|█████     | 1/2 [00:25<00:25, 25.41s/it]Playlist execution:  50%|█████     | 1/2 [00:26<00:26, 26.73s/it]Playlist execution:  50%|█████     | 1/2 [00:27<00:27, 27.95s/it]Playlist execution:  50%|█████     | 1/2 [00:29<00:29, 29.45s/it]Playlist execution:  50%|█████     | 1/2 [00:30<00:30, 30.65s/it]Playlist execution:  50%|█████     | 1/2 [00:31<00:31, 31.93s/it]Playlist execution:  50%|█████     | 1/2 [00:33<00:33, 33.11s/it]Playlist execution:  50%|█████     | 1/2 [00:34<00:34, 34.54s/it]Playlist execution:  50%|█████     | 1/2 [00:35<00:35, 35.82s/it]Playlist execution:  50%|█████     | 1/2 [00:36<00:36, 37.00s/it]Playlist execution:  50%|█████     | 1/2 [00:38<00:38, 38.21s/it]Playlist execution:  50%|█████     | 1/2 [00:39<00:39, 39.40s/it]Playlist execution:  50%|█████     | 1/2 [00:40<00:40, 40.59s/it]Playlist execution:  50%|█████     | 1/2 [00:41<00:41, 41.78s/it]Playlist execution:  50%|█████     | 1/2 [00:42<00:42, 42.97s/it]Playlist execution:  50%|█████     | 1/2 [00:44<00:44, 44.19s/it]Playlist execution:  50%|█████     | 1/2 [00:45<00:45, 45.38s/it]Playlist execution:  50%|█████     | 1/2 [00:46<00:46, 46.57s/it]Playlist execution:  50%|█████     | 1/2 [00:47<00:47, 47.76s/it]Playlist execution:  50%|█████     | 1/2 [00:48<00:48, 48.94s/it]Playlist execution:  50%|█████     | 1/2 [00:50<00:50, 50.13s/it]Playlist execution:  50%|█████     | 1/2 [00:51<00:51, 51.30s/it]Playlist execution:  50%|█████     | 1/2 [00:52<00:52, 52.50s/it]Playlist execution:  50%|█████     | 1/2 [00:53<00:53, 53.68s/it]Playlist execution:  50%|█████     | 1/2 [00:54<00:54, 54.89s/it]Playlist execution:  50%|█████     | 1/2 [00:56<00:56, 56.09s/it]Playlist execution:  50%|█████     | 1/2 [00:57<00:57, 57.28s/it]Playlist execution:  50%|█████     | 1/2 [00:58<00:58, 58.44s/it]Playlist execution:  50%|█████     | 1/2 [00:59<00:59, 59.62s/it]Playlist execution:  50%|█████     | 1/2 [01:00<01:00, 60.87s/it]Playlist execution:  50%|█████     | 1/2 [01:02<01:02, 62.04s/it]Playlist execution:  50%|█████     | 1/2 [01:03<01:03, 63.21s/it]Playlist execution:  50%|█████     | 1/2 [01:04<01:04, 64.39s/it]Playlist execution:  50%|█████     | 1/2 [01:05<01:05, 65.56s/it]Playlist execution:  50%|█████     | 1/2 [01:06<01:06, 66.82s/it]Playlist execution:  50%|█████     | 1/2 [01:08<01:08, 68.07s/it]Playlist execution:  50%|█████     | 1/2 [01:09<01:09, 69.33s/it]Playlist execution:  50%|█████     | 1/2 [01:10<01:10, 70.52s/it]Playlist execution:  50%|█████     | 1/2 [01:11<01:11, 71.72s/it]Playlist execution:  50%|█████     | 1/2 [01:12<01:12, 72.91s/it]Playlist execution:  50%|█████     | 1/2 [01:14<01:14, 74.09s/it]Playlist execution:  50%|█████     | 1/2 [01:15<01:15, 75.30s/it]Playlist execution:  50%|█████     | 1/2 [01:16<01:16, 76.50s/it]Playlist execution:  50%|█████     | 1/2 [01:17<01:17, 77.69s/it]Playlist execution:  50%|█████     | 1/2 [01:18<01:18, 78.86s/it]Playlist execution:  50%|█████     | 1/2 [01:20<01:20, 80.03s/it]Playlist execution:  50%|█████     | 1/2 [01:21<01:21, 81.22s/it]Playlist execution:  50%|█████     | 1/2 [01:22<01:22, 82.39s/it]Playlist execution:  50%|█████     | 1/2 [01:23<01:23, 83.59s/it]Playlist execution:  50%|█████     | 1/2 [01:24<01:24, 84.75s/it]Playlist execution:  50%|█████     | 1/2 [01:25<01:25, 85.94s/it]Playlist execution:  50%|█████     | 1/2 [01:27<01:27, 87.23s/it]Playlist execution:  50%|█████     | 1/2 [01:28<01:28, 88.40s/it]Playlist execution:  50%|█████     | 1/2 [01:29<01:29, 89.57s/it]Playlist execution:  50%|█████     | 1/2 [01:30<01:30, 90.75s/it]Playlist execution:  50%|█████     | 1/2 [01:32<01:32, 92.23s/it]Playlist execution:  50%|█████     | 1/2 [01:35<01:35, 95.22s/it]Playlist execution:  50%|█████     | 1/2 [01:38<01:38, 98.12s/it]Playlist execution: 100%|██████████| 2/2 [01:41<00:00, 50.81s/it]Playlist execution: 100%|██████████| 2/2 [01:45<00:00, 52.67s/it]Playlist execution: 100%|██████████| 2/2 [01:45<00:00, 52.67s/it]
+    batch done:  243/243  (225.3s on backend)
+  [ansatz_simulator state B] submitting 243 tomography circuits in batches of 250 (2048 shots each)...
+Playlist execution:   0%|          | 0/2 [00:00<?, ?it/s]Playlist execution:  50%|█████     | 1/2 [00:00<00:00, 59918.63it/s]Playlist execution:  50%|█████     | 1/2 [00:01<00:01,  1.19s/it]   Playlist execution:  50%|█████     | 1/2 [00:02<00:02,  2.39s/it]Playlist execution:  50%|█████     | 1/2 [00:03<00:03,  3.57s/it]Playlist execution:  50%|█████     | 1/2 [00:04<00:04,  4.75s/it]Playlist execution:  50%|█████     | 1/2 [00:05<00:05,  5.93s/it]Playlist execution:  50%|█████     | 1/2 [00:07<00:07,  7.13s/it]Playlist execution:  50%|█████     | 1/2 [00:08<00:08,  8.30s/it]Playlist execution:  50%|█████     | 1/2 [00:09<00:09,  9.48s/it]Playlist execution:  50%|█████     | 1/2 [00:10<00:10, 10.66s/it]Playlist execution:  50%|█████     | 1/2 [00:11<00:11, 11.84s/it]Playlist execution:  50%|█████     | 1/2 [00:13<00:13, 13.03s/it]Playlist execution:  50%|█████     | 1/2 [00:14<00:14, 14.19s/it]Playlist execution:  50%|█████     | 1/2 [00:15<00:15, 15.39s/it]Playlist execution:  50%|█████     | 1/2 [00:16<00:16, 16.58s/it]Playlist execution:  50%|█████     | 1/2 [00:17<00:17, 17.78s/it]Playlist execution:  50%|█████     | 1/2 [00:18<00:18, 18.96s/it]Playlist execution:  50%|█████     | 1/2 [00:20<00:20, 20.15s/it]Playlist execution:  50%|█████     | 1/2 [00:21<00:21, 21.35s/it]Playlist execution:  50%|█████     | 1/2 [00:22<00:22, 22.55s/it]Playlist execution:  50%|█████     | 1/2 [00:23<00:23, 23.74s/it]Playlist execution:  50%|█████     | 1/2 [00:24<00:24, 24.96s/it]Playlist execution:  50%|█████     | 1/2 [00:26<00:26, 26.18s/it]Playlist execution:  50%|█████     | 1/2 [00:27<00:27, 27.38s/it]Playlist execution:  50%|█████     | 1/2 [00:28<00:28, 28.55s/it]Playlist execution:  50%|█████     | 1/2 [00:29<00:29, 29.71s/it]Playlist execution:  50%|█████     | 1/2 [00:30<00:30, 30.90s/it]Playlist execution:  50%|█████     | 1/2 [00:32<00:32, 32.10s/it]Playlist execution:  50%|█████     | 1/2 [00:33<00:33, 33.27s/it]Playlist execution:  50%|█████     | 1/2 [00:34<00:34, 34.44s/it]Playlist execution:  50%|█████     | 1/2 [00:35<00:35, 35.63s/it]Playlist execution:  50%|█████     | 1/2 [00:36<00:36, 36.80s/it]Playlist execution:  50%|█████     | 1/2 [00:37<00:37, 37.98s/it]Playlist execution:  50%|█████     | 1/2 [00:39<00:39, 39.15s/it]Playlist execution:  50%|█████     | 1/2 [00:40<00:40, 40.34s/it]Playlist execution:  50%|█████     | 1/2 [00:41<00:41, 41.52s/it]Playlist execution:  50%|█████     | 1/2 [00:42<00:42, 42.71s/it]Playlist execution:  50%|█████     | 1/2 [00:43<00:43, 43.88s/it]Playlist execution:  50%|█████     | 1/2 [00:45<00:45, 45.05s/it]Playlist execution:  50%|█████     | 1/2 [00:46<00:46, 46.23s/it]Playlist execution:  50%|█████     | 1/2 [00:47<00:47, 47.42s/it]Playlist execution:  50%|█████     | 1/2 [00:48<00:48, 48.60s/it]Playlist execution:  50%|█████     | 1/2 [00:49<00:49, 49.78s/it]Playlist execution:  50%|█████     | 1/2 [00:50<00:50, 50.97s/it]Playlist execution:  50%|█████     | 1/2 [00:52<00:52, 52.24s/it]Playlist execution:  50%|█████     | 1/2 [00:53<00:53, 53.42s/it]Playlist execution:  50%|█████     | 1/2 [00:54<00:54, 54.62s/it]Playlist execution:  50%|█████     | 1/2 [00:55<00:55, 55.82s/it]Playlist execution:  50%|█████     | 1/2 [00:57<00:57, 57.01s/it]Playlist execution:  50%|█████     | 1/2 [00:58<00:58, 58.19s/it]Playlist execution:  50%|█████     | 1/2 [00:59<00:59, 59.43s/it]Playlist execution:  50%|█████     | 1/2 [01:00<01:00, 60.59s/it]Playlist execution:  50%|█████     | 1/2 [01:01<01:01, 61.77s/it]Playlist execution:  50%|█████     | 1/2 [01:02<01:02, 62.96s/it]Playlist execution:  50%|█████     | 1/2 [01:04<01:04, 64.14s/it]Playlist execution:  50%|█████     | 1/2 [01:05<01:05, 65.32s/it]Playlist execution:  50%|█████     | 1/2 [01:06<01:06, 66.54s/it]Playlist execution:  50%|█████     | 1/2 [01:07<01:07, 67.74s/it]Playlist execution:  50%|█████     | 1/2 [01:08<01:08, 68.92s/it]Playlist execution:  50%|█████     | 1/2 [01:10<01:10, 70.10s/it]Playlist execution:  50%|█████     | 1/2 [01:11<01:11, 71.30s/it]Playlist execution:  50%|█████     | 1/2 [01:12<01:12, 72.47s/it]Playlist execution:  50%|█████     | 1/2 [01:13<01:13, 73.65s/it]Playlist execution:  50%|█████     | 1/2 [01:14<01:14, 74.83s/it]Playlist execution:  50%|█████     | 1/2 [01:15<01:15, 75.99s/it]Playlist execution:  50%|█████     | 1/2 [01:17<01:17, 77.19s/it]Playlist execution:  50%|█████     | 1/2 [01:18<01:18, 78.37s/it]Playlist execution:  50%|█████     | 1/2 [01:19<01:19, 79.55s/it]
