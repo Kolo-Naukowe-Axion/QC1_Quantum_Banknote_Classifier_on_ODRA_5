@@ -14,18 +14,12 @@ import numpy as np
 from qiskit import QuantumCircuit
 
 from qbanknote.ansatzes import trimmed_reverse_q0_param_count
-<<<<<<< HEAD
-from qbanknote.data import load_fold_arrays
 from qbanknote.evaluation import (
     append_csv_row,
-    ansatz_key,
     is_retryable_hardware_error,
     read_csv_or_empty,
     retry_wait_seconds,
 )
-=======
-from qbanknote.evaluation import append_csv_row, read_csv_or_empty
->>>>>>> caafd4dd3fbe9d6f3b354758649c6e70fe30c03e
 from qbanknote.iqm import run_circuits_on_backend, transpile_for_backend
 from qbanknote.paths import find_project_root
 from qbanknote.progress import report_progress
