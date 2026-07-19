@@ -3,10 +3,11 @@
     "ansatz_odra",
     "ansatz_simulator"
   ],
-  "backend": "<iqm.qiskit_iqm.iqm_provider.IQMBackend object at 0x7fbc7ec16f90>",
+  "backend": "<iqm.qiskit_iqm.iqm_provider.IQMBackend object at 0x000001E7D37EDF70>",
   "circuits_per_fidelity_sample": 486,
-  "created_utc": "2026-07-18T20:51:38.534102+00:00",
+  "created_utc": "2026-07-01T23:22:13.695445+00:00",
   "depths": [
+    4,
     6
   ],
   "eps": 1e-12,
@@ -14,10 +15,12 @@
   "hardware_retries": 6,
   "iqm_url": "https://odra5.e-science.pl/",
   "iteration": 1,
+  "jobs_completed": 2,
+  "jobs_total": 4,
   "kl_direction": "P_hardware || P_Haar",
   "max_circuits_per_job": 250,
   "method": "hardware_hardware_overlap_tomography",
-  "n_bins": 75,
+  "n_bins": 400,
   "n_qubits": 5,
   "n_samples": 60,
   "optimization_level": 1,
@@ -26,11 +29,12 @@
     "iqm_kl_fidelities.csv"
   ],
   "protocol_json": null,
+  "protocol_scope": "global",
   "retry_wait_seconds_initial": 60.0,
   "retry_wait_seconds_max": 600.0,
-  "run_id": "kl_hardware_depth6",
+  "run_id": "kl_hardware",
   "seed": 42,
   "shots": 2048,
   "source_script": "scripts/run_iqm_kl_expressibility.py",
-  "total_tomography_circuits": 58320
+  "total_tomography_circuits": 116640
 }

@@ -1,0 +1,23 @@
+{
+  "metric": "KL(P_QPU || P_Haar) = expressibility (lower = closer to Haar)",
+  "ansatz": "ansatz_star",
+  "n_qubits": 5,
+  "shots": 2048,
+  "n_bootstrap": 5000,
+  "confidence_levels": [
+    0.9,
+    0.95
+  ],
+  "bin_grid": [
+    75,
+    150,
+    400
+  ],
+  "protocol_n_bins": 400,
+  "source": "kl_combined (from star-2:kl_hardware_star)",
+  "outputs": {
+    "full": "evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_combined/analysis/star_expressibility/star_expressibility.csv",
+    "nbins400": "evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_combined/analysis/star_expressibility/star_expressibility_nbins400.csv",
+    "summary": "evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_combined/analysis/star_expressibility/star_expressibility_summary.csv"
+  }
+}

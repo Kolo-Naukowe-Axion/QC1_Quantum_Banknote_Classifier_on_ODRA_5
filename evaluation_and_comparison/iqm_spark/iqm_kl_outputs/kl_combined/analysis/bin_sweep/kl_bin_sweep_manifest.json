@@ -1,0 +1,25 @@
+{
+  "bin_grid": [
+    50,
+    75,
+    100,
+    125,
+    150,
+    175,
+    200,
+    225,
+    250,
+    275,
+    300,
+    325,
+    350,
+    375,
+    400
+  ],
+  "bootstrap_trials": 1000,
+  "combined_dir": "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_combined",
+  "confidence_level": 0.95,
+  "metric": "kl_qpu_haar",
+  "n_rows": 270,
+  "reference_results": "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_combined/analysis/kl_results_by_bins.csv"
+}

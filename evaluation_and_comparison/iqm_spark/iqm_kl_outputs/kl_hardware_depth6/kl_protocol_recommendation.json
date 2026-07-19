@@ -1,0 +1,12 @@
+{
+  "eps": 1e-12,
+  "iterations": 2,
+  "n_bins": 75,
+  "n_samples": 60,
+  "protocol_json": null,
+  "repair_note": "iteration_2/ansatz_odra fidelities reconstructed from git stash samples 0-58 + on-disk sample 59 after merge/stash corruption; no QPU remeasurement; aggregation via aggregate_kl_from_sample_rows",
+  "repaired_utc": "20260719T103712Z",
+  "run_id": "kl_hardware_depth6",
+  "shots": 2048,
+  "target_iteration_half_width": 0.02
+}

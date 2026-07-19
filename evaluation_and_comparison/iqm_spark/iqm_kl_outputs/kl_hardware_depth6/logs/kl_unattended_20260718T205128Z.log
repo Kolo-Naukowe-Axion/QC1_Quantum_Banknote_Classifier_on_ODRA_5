@@ -1,0 +1,33 @@
+=== KL unattended study ===
+Started UTC:  2026-07-18T20:51:28Z
+Python:       uv run python
+Run ID:       kl_hardware_depth6
+Run output:   /home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_depth6
+Ansatzes:     ansatz_odra ansatz_simulator
+Depths:       6
+Samples/job:  60
+Shots:        2048
+Bins:         75
+Iterations:   2
+Retries:      6
+Est. pairs:   240  (~16.0 h @ ~4 min/pair)
+Log:          /home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_depth6/logs/kl_unattended_20260718T205128Z.log
+
+[qpu] Starting sweep (both ansatze, resume enabled)...
+
+[iteration 1/2] -> /home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_depth6/iteration_1
+
+[iteration 2/2] -> /home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_depth6/iteration_2
+
+Completed KL sweep: 58320 tomography circuits, estimated wall time ~480 min
+Outputs: /home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_depth6
+[analysis] Offline KL(QPU/Sim/Haar)...
+Traceback (most recent call last):
+  File "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/scripts/analyze_iqm_kl_expressibility.py", line 91, in <module>
+    main()
+  File "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/scripts/analyze_iqm_kl_expressibility.py", line 72, in main
+    comparison_df = analyze_kl_qpu_sim_haar_jobs(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/raf/Dokumenty/Uczelnia/Programy/axion/QC1_Quantum_Banknote_Classifier_on_ODRA_5/src/qbanknote/metrics.py", line 1116, in analyze_kl_qpu_sim_haar_jobs
+    raise ValueError(
+ValueError: Incomplete fidelity rows for ansatz_odra depth=6: expected 60, got 52

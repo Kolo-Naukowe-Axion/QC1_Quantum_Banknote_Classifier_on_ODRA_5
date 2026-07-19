@@ -1,0 +1,34 @@
+{
+  "metric": "KL(P_Sim || P_Haar)",
+  "base_seed": 42,
+  "n_samples": 60,
+  "n_qubits": 5,
+  "depths": [
+    2,
+    4,
+    6
+  ],
+  "ansatze": [
+    "ansatz_odra",
+    "ansatz_simulator",
+    "ansatz_star"
+  ],
+  "bin_grid": [
+    50,
+    75,
+    100,
+    125,
+    150,
+    175,
+    200,
+    225,
+    250,
+    275,
+    300,
+    325,
+    350,
+    375,
+    400
+  ],
+  "note": "Sim fidelities are deterministic given (ansatz, depth, seed); identical for both HW iterations."
+}

@@ -5,7 +5,7 @@
   ],
   "backend": "<iqm.qiskit_iqm.iqm_provider.IQMBackend object at 0x7fbc7ec16f90>",
   "circuits_per_fidelity_sample": 486,
-  "created_utc": "2026-07-18T20:51:38.534102+00:00",
+  "created_utc": "2026-07-18T20:51:38.538169+00:00",
   "depths": [
     6
   ],
@@ -13,7 +13,7 @@
   "fidelity_definition": "Tr(rho_a @ rho_b) from full 3^n Pauli tomography",
   "hardware_retries": 6,
   "iqm_url": "https://odra5.e-science.pl/",
-  "iteration": 1,
+  "iteration": 2,
   "kl_direction": "P_hardware || P_Haar",
   "max_circuits_per_job": 250,
   "method": "hardware_hardware_overlap_tomography",

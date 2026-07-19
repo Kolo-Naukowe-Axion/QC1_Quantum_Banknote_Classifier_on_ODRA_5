@@ -1,0 +1,27 @@
+{
+  "incomplete_excluded": "iqm-kl-pilot-data kl_hardware iteration_1 had incomplete ansatz_odra depth=6 (31/60); replaced by main kl_hardware_depth6.",
+  "matrix": {
+    "ansatze": [
+      "ansatz_odra",
+      "ansatz_simulator",
+      "ansatz_star"
+    ],
+    "depths": [
+      2,
+      4,
+      6
+    ],
+    "iterations": [
+      1,
+      2
+    ],
+    "n_samples_per_cell": 60,
+    "shots": 2048
+  },
+  "note": "Depth 2/4 (odra, simulator) from branch iqm-kl-pilot-data (not present on main); depth 6 (odra, simulator) from main kl_hardware_depth6; star depths 2/4/6 from branch star-2.",
+  "sources": {
+    "d2_d4_d6_star": "star-2:evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_star",
+    "d2_d4_odra_simulator": "iqm-kl-pilot-data:evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware",
+    "d6_odra_simulator": "main working tree:evaluation_and_comparison/iqm_spark/iqm_kl_outputs/kl_hardware_depth6"
+  }
+}

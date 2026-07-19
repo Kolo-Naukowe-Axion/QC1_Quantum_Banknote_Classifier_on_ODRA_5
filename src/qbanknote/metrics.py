@@ -1578,6 +1578,34 @@ def run_iqm_kl_sweep(
     completed = completed_kl_jobs(summary_path) if resume else set()
     jobs = [(ansatz_name, depth) for depth in depths for ansatz_name in ansatz_names]
     total_jobs = len(jobs)
+
+    # Only treat a job as done if both the summary row and all fidelity samples exist.
+    # Otherwise a corrupted/partial fidelities CSV plus a stale summary would skip QPU work.
+    if resume and completed:
+        verified: set[tuple[str, int]] = set()
+        stale: set[tuple[str, int]] = set()
+        for ansatz_name, depth in completed:
+            saved = completed_kl_samples(fidelities_path, ansatz_name, depth)
+            if len(saved) >= n_samples and set(range(n_samples)).issubset(saved):
+                verified.add((ansatz_name, depth))
+            else:
+                stale.add((ansatz_name, depth))
+                if verbose:
+                    print(
+                        f"Dropping incomplete summary for {ansatz_name} depth={depth}: "
+                        f"{len(saved)}/{n_samples} fidelity samples on disk",
+                        flush=True,
+                    )
+        if stale:
+            summary_frame = read_csv_or_empty(summary_path)
+            if not summary_frame.empty:
+                keep = [
+                    kl_job_key(str(row.ansatz), int(row.depth)) not in stale
+                    for row in summary_frame.itertuples(index=False)
+                ]
+                summary_frame.loc[keep].to_csv(summary_path, index=False)
+        completed = verified
+
     done_jobs = sum(1 for job in jobs if job in completed)
 
     for ansatz_name, depth in jobs:
