@@ -1,0 +1,4 @@
+Connecting to IQM for phase=final, depth=4, shots=[4096], repeats=45
+Hardware 316/450 | depth=4 fold=4 ansatz=odra shots=4096 repeat=22
+No gradient function provided, creating a gradient function. If your Estimator requires transpilation, please provide a pass manager.
+Hardware task failed and was not recorded: 'A connected component of the DAGCircuit is too large for any of the connected components in the coupling map'

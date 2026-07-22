@@ -1,0 +1,5 @@
+Connecting to IQM for phase=final, depth=4, shots=[4096], repeats=45
+Hardware 442/450 | depth=4 fold=5 ansatz=odra shots=4096 repeat=40
+No gradient function provided, creating a gradient function. If your Estimator requires transpilation, please provide a pass manager.
+Job was cancelled!
+Hardware task failed and was not recorded: cannot reshape array of size 0 into shape (274,1)

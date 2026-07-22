@@ -1,0 +1,30 @@
+Connecting to IQM for phase=final, depth=4, shots=[4096], repeats=45
+Hardware 316/450 | depth=4 fold=4 ansatz=odra shots=4096 repeat=22
+No gradient function provided, creating a gradient function. If your Estimator requires transpilation, please provide a pass manager.
+System.Management.Automation.RemoteException
+Progress in queue:   0%|          | 0/1 [00:00<?, ?it/s]
+Progress in queue:   0%|          | 0/1 [00:00<?, ?it/s]
+Progress in queue:   0%|          | 0/1 [00:01<?, ?it/s]
+Progress in queue:   0%|          | 0/1 [07:40<?, ?it/s]
+Traceback (most recent call last):
+  File "C:\Users\iwowo\Documents\uni\axion\QC1\tests\ansatz_odra_evaluation\run_cv_experiment.py", line 171, in <module>
+    main()
+  File "C:\Users\iwowo\Documents\uni\axion\QC1\tests\ansatz_odra_evaluation\run_cv_experiment.py", line 159, in main
+    append_csv_row(runs_csv, row)
+  File "C:\Users\iwowo\Documents\uni\axion\QC1\tests\ansatz_odra_evaluation\experiment_lib.py", line 507, in append_csv_row
+    combined.to_csv(path, index=False)
+  File "C:\Users\iwowo\Documents\uni\axion\QC1\.venv\Lib\site-packages\pandas\util\_decorators.py", line 333, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\iwowo\Documents\uni\axion\QC1\.venv\Lib\site-packages\pandas\core\generic.py", line 3989, in to_csv
+    return DataFrameRenderer(formatter).to_csv(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\iwowo\Documents\uni\axion\QC1\.venv\Lib\site-packages\pandas\io\formats\format.py", line 1014, in to_csv
+    csv_formatter.save()
+  File "C:\Users\iwowo\Documents\uni\axion\QC1\.venv\Lib\site-packages\pandas\io\formats\csvs.py", line 251, in save
+    with get_handle(
+         ^^^^^^^^^^^
+  File "C:\Users\iwowo\Documents\uni\axion\QC1\.venv\Lib\site-packages\pandas\io\common.py", line 873, in get_handle
+    handle = open(
+             ^^^^^
+PermissionError: [Errno 13] Permission denied: 'C:\\Users\\iwowo\\Documents\\uni\\axion\\QC1\\tests\\ansatz_odra_evaluation\\outputs\\final\\final_depth4\\run_level_results.csv'

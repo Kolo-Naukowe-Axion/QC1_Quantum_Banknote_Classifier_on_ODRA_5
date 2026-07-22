@@ -1,0 +1,12 @@
+{
+  "chosen_repeats": 1,
+  "chosen_shot": 1024,
+  "delta_accuracy": 0.01,
+  "delta_f1": 0.02,
+  "depth": 2,
+  "pilot_run_dir": "C:\\Users\\iwowo\\Documents\\uni\\axion\\QC1_Quantum_Banknote_Classifier_on_ODRA_5\\evaluation_and_comparison\\iqm_spark\\iqm_metric_outputs\\pilot\\star_pilot_depth2",
+  "recommended_repeats_accuracy": 1,
+  "recommended_repeats_f1": 1,
+  "target_half_width_accuracy": 0.02,
+  "target_half_width_f1": 0.03
+}

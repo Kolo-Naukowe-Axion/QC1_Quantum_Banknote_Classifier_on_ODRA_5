@@ -1,0 +1,11 @@
+{
+  "chosen_repeats": 2,
+  "chosen_shot": 4096,
+  "delta_accuracy": 0.01,
+  "delta_f1": 0.02,
+  "depth": 6,
+  "recommended_repeats_accuracy": 1,
+  "recommended_repeats_f1": 2,
+  "target_half_width_accuracy": 0.02,
+  "target_half_width_f1": 0.03
+}

@@ -1,0 +1,3 @@
+phase,depth,fold,ansatz,statevector_accuracy,statevector_f1,test_csv,weight_path
+pilot,6,1,ansatz_star,0.8363636363636363,0.7783251231527094,C:\Users\iwowo\Documents\uni\axion\QC1_Quantum_Banknote_Classifier_on_ODRA_5\cross_validation\Data\fold_1\test_data.csv,C:\Users\iwowo\Documents\uni\axion\QC1_Quantum_Banknote_Classifier_on_ODRA_5\cross_validation\Models\Weights\depth 6\Star\fold_1\Star_fold_1_depth_6_epoch_30_weights.pth
+pilot,6,2,ansatz_star,0.9054545454545454,0.8859649122807017,C:\Users\iwowo\Documents\uni\axion\QC1_Quantum_Banknote_Classifier_on_ODRA_5\cross_validation\Data\fold_2\test_data.csv,C:\Users\iwowo\Documents\uni\axion\QC1_Quantum_Banknote_Classifier_on_ODRA_5\cross_validation\Models\Weights\depth 6\Star\fold_2\Star_fold_2_depth_6_epoch_30_weights.pth

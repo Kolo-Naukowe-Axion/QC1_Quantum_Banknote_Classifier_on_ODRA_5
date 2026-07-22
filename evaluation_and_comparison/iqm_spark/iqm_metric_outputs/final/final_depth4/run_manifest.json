@@ -1,0 +1,35 @@
+{
+  "ansatze": [
+    "ansatz_star"
+  ],
+  "checkpoint_epoch": 30,
+  "created_utc": "2026-07-19T12:36:39.757118+00:00",
+  "cross_validation_dir": "cross_validation",
+  "delta_accuracy": 0.01,
+  "delta_f1": 0.02,
+  "depth": 4,
+  "experiment_name": "ansatz_odra_evaluation",
+  "folds": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "iqm_url": "https://odra5.e-science.pl/",
+  "num_qubits": 5,
+  "optimization_level": 1,
+  "outputs_dir": "evaluation_and_comparison/iqm_spark/iqm_metric_outputs",
+  "phase": "final",
+  "random_seed": 42,
+  "repeats": 20,
+  "run_iqm_hardware": false,
+  "seed_transpiler": 42,
+  "shots": [
+    2048
+  ],
+  "shuffle_execution": true,
+  "simulator_uses_ideal_suffix": false,
+  "target_half_width_accuracy": 0.02,
+  "target_half_width_f1": 0.03
+}
