@@ -18,7 +18,13 @@ import pandas as pd
 import torch
 from pandas.errors import ParserError
 
-from qbanknote.ansatzes import odra_ansatz, odra_star_ansatz, simulator_ansatz
+from qbanknote.ansatzes import (
+    STAR_HUB_QUBIT,
+    odra_ansatz,
+    odra_star_ansatz,
+    simulator_ansatz,
+    star_ansatz,
+)
 from qbanknote.classification import evaluate_predictions
 from qbanknote.data import load_fold_arrays
 from qbanknote.iqm import build_iqm_estimator_model, calibration_set_id
@@ -27,11 +33,12 @@ from qbanknote.paths import find_project_root
 from qbanknote.progress import report_progress
 from qbanknote.weights import load_checkpoint_connector, load_checkpoint_hybrid, metric_weight_path
 
-ANSATZ_KEYS = ("odra", "odra_star", "simulator")
+ANSATZ_KEYS = ("odra", "odra_star", "simulator", "star")
 ODRA_ANSATZ_NAME = "ansatz_odra"
 ODRA_STAR_ANSATZ_NAME = "ansatz_odra_star"
 SIMULATOR_ANSATZ_NAME = "ansatz_simulator"
-ANSATZ_NAMES = (ODRA_ANSATZ_NAME, SIMULATOR_ANSATZ_NAME)
+STAR_ANSATZ_NAME = "ansatz_star"
+ANSATZ_NAMES = (ODRA_ANSATZ_NAME, SIMULATOR_ANSATZ_NAME, STAR_ANSATZ_NAME)
 ANSATZ_ALIASES = {
     "odra": "odra",
     ODRA_ANSATZ_NAME: "odra",
@@ -39,11 +46,14 @@ ANSATZ_ALIASES = {
     ODRA_STAR_ANSATZ_NAME: "odra_star",
     "simulator": "simulator",
     SIMULATOR_ANSATZ_NAME: "simulator",
+    "star": "star",
+    STAR_ANSATZ_NAME: "star",
 }
 ANSATZ_LABELS = {
     "odra": ODRA_ANSATZ_NAME,
     "odra_star": ODRA_STAR_ANSATZ_NAME,
     "simulator": SIMULATOR_ANSATZ_NAME,
+    "star": STAR_ANSATZ_NAME,
 }
 RUN_LEVEL_COLUMNS = [
     "timestamp_utc",
@@ -107,6 +117,10 @@ class PhaseSpec:
     delta_f1: float
     target_half_width_accuracy: float
     target_half_width_f1: float
+    # Canonical ansatz names to EXECUTE this run (subset of ANSATZ_NAMES). The
+    # summary always spans the full ANSATZ_NAMES so a subset run (e.g. star-only)
+    # appends to an existing run dir without dropping the other ansatze.
+    ansatze: tuple[str, ...] = ANSATZ_NAMES
 
 
 def ansatz_key(name: str) -> str:
@@ -128,6 +142,20 @@ def normalize_ansatz_labels(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+# Readout qubit each model was trained to measure (Pauli-Z expectation).
+# The star ansatz reads out on its hub qubit; the others use qubit 0.
+ANSATZ_MEASURED_QUBIT = {
+    "odra": 0,
+    "odra_star": 0,
+    "simulator": 0,
+    "star": STAR_HUB_QUBIT,
+}
+
+
+def measured_qubit_for(name: str) -> int:
+    return ANSATZ_MEASURED_QUBIT[ansatz_key(name)]
+
+
 def ansatz_factory(name: str):
     key = ansatz_key(name)
     if key == "odra":
@@ -136,6 +164,8 @@ def ansatz_factory(name: str):
         return odra_star_ansatz
     if key == "simulator":
         return simulator_ansatz
+    if key == "star":
+        return star_ansatz
     raise KeyError(f"Unknown ansatz: {name}")
 
 
@@ -152,6 +182,7 @@ def load_phase_spec(
     shots_override: list[int] | None = None,
     repeats_override: int | None = None,
     run_iqm_hardware_override: bool | None = None,
+    ansatze_override: list[str] | tuple[str, ...] | None = None,
 ) -> PhaseSpec:
     data = load_toml(config_path)
     common = data["common"]
@@ -166,6 +197,12 @@ def load_phase_spec(
         if run_iqm_hardware_override is not None
         else bool(phase_cfg["run_iqm_hardware"])
     )
+    if ansatze_override:
+        # Canonicalize and keep ANSATZ_NAMES ordering for deterministic execution.
+        requested = {canonical_ansatz_name(name) for name in ansatze_override}
+        ansatze = tuple(name for name in ANSATZ_NAMES if name in requested)
+    else:
+        ansatze = ANSATZ_NAMES
 
     return PhaseSpec(
         experiment_name=str(common["experiment_name"]),
@@ -189,6 +226,7 @@ def load_phase_spec(
         delta_f1=float(protocol["delta_f1"]),
         target_half_width_accuracy=float(protocol["target_half_width_accuracy"]),
         target_half_width_f1=float(protocol["target_half_width_f1"]),
+        ansatze=ansatze,
     )
 
 
@@ -234,7 +272,12 @@ def load_fold_test_data(spec: PhaseSpec, fold: int, *, root: Path | None = None)
 
 def build_statevector_model(ansatz_name: str, spec: PhaseSpec) -> HybridModel:
     circuit = ansatz_factory(ansatz_name)(spec.num_qubits, spec.depth)
-    return HybridModel(circuit, spec.num_qubits, random_seed=spec.random_seed)
+    return HybridModel(
+        circuit,
+        spec.num_qubits,
+        random_seed=spec.random_seed,
+        measured_qubit=measured_qubit_for(ansatz_name),
+    )
 
 
 def read_csv_or_empty(path: Path) -> pd.DataFrame:
@@ -361,6 +404,7 @@ def compute_hardware_row(
         optimization_level=spec.optimization_level,
         seed_transpiler=spec.seed_transpiler,
         random_seed=spec.random_seed,
+        measured_qubit=measured_qubit_for(ansatz_name),
     )
     load_checkpoint_connector(hw_model, checkpoint)
     hw_model.eval()
@@ -419,72 +463,81 @@ def summarize_results(
 
     statevector_rows = normalize_ansatz_labels(statevector_df)
     statevector_rows["fold"] = statevector_rows["fold"].astype(int)
+    statevector_rows["depth"] = statevector_rows["depth"].astype(int)
     successful_runs = normalize_ansatz_labels(successful_run_df(run_df))
 
     rows: list[dict[str, Any]] = []
     shots_values = list(spec.shots) if spec.run_iqm_hardware else [math.nan]
 
-    for fold in spec.folds:
-        for ansatz_name in ANSATZ_NAMES:
-            sv_match = statevector_rows[
-                (statevector_rows["fold"] == int(fold)) & (statevector_rows["ansatz"] == ansatz_name)
-            ]
-            if sv_match.empty:
-                continue
-            sv_row = sv_match.iloc[0]
-            for shot in shots_values:
-                if spec.run_iqm_hardware and not successful_runs.empty:
-                    hw_group = successful_runs[
-                        (successful_runs["fold"] == int(fold))
-                        & (successful_runs["ansatz"] == ansatz_name)
-                        & (successful_runs["shots"] == int(shot))
-                    ]
-                else:
-                    hw_group = pd.DataFrame()
+    # Summarize every depth present in the statevector data, so a run directory
+    # holding several depths yields one complete summary spanning all of them.
+    depths = sorted(int(d) for d in statevector_rows["depth"].dropna().unique())
 
-                if hw_group.empty:
-                    mean_acc = mean_f1 = std_acc = std_f1 = float("nan")
-                    completed_repeats = 0
-                else:
-                    mean_acc = float(hw_group["accuracy"].mean())
-                    mean_f1 = float(hw_group["f1"].mean())
-                    std_acc = float(hw_group["accuracy"].std(ddof=1)) if len(hw_group) > 1 else 0.0
-                    std_f1 = float(hw_group["f1"].std(ddof=1)) if len(hw_group) > 1 else 0.0
-                    completed_repeats = int(len(hw_group))
+    for depth in depths:
+        for fold in spec.folds:
+            for ansatz_name in ANSATZ_NAMES:
+                sv_match = statevector_rows[
+                    (statevector_rows["depth"] == depth)
+                    & (statevector_rows["fold"] == int(fold))
+                    & (statevector_rows["ansatz"] == ansatz_name)
+                ]
+                if sv_match.empty:
+                    continue
+                sv_row = sv_match.iloc[0]
+                for shot in shots_values:
+                    if spec.run_iqm_hardware and not successful_runs.empty:
+                        hw_group = successful_runs[
+                            (successful_runs["depth"] == depth)
+                            & (successful_runs["fold"] == int(fold))
+                            & (successful_runs["ansatz"] == ansatz_name)
+                            & (successful_runs["shots"] == int(shot))
+                        ]
+                    else:
+                        hw_group = pd.DataFrame()
 
-                rows.append(
-                    {
-                        "phase": spec.phase,
-                        "depth": spec.depth,
-                        "fold": int(fold),
-                        "ansatz": ansatz_name,
-                        "statevector_accuracy": float(sv_row["statevector_accuracy"]),
-                        "statevector_f1": float(sv_row["statevector_f1"]),
-                        "statevector_std_accuracy": 0.0,
-                        "statevector_std_f1": 0.0,
-                        "iqm_mean_accuracy": mean_acc,
-                        "iqm_std_accuracy": std_acc,
-                        "iqm_mean_f1": mean_f1,
-                        "iqm_std_f1": std_f1,
-                        "eval_shots": shot,
-                        "n_repeats": spec.repeats if spec.run_iqm_hardware else 0,
-                        "completed_repeats": completed_repeats,
-                        "test_csv": str(sv_row["test_csv"]),
-                        "weight_path": str(sv_row["weight_path"]),
-                    }
-                )
+                    if hw_group.empty:
+                        mean_acc = mean_f1 = std_acc = std_f1 = float("nan")
+                        completed_repeats = 0
+                    else:
+                        mean_acc = float(hw_group["accuracy"].mean())
+                        mean_f1 = float(hw_group["f1"].mean())
+                        std_acc = float(hw_group["accuracy"].std(ddof=1)) if len(hw_group) > 1 else 0.0
+                        std_f1 = float(hw_group["f1"].std(ddof=1)) if len(hw_group) > 1 else 0.0
+                        completed_repeats = int(len(hw_group))
+
+                    rows.append(
+                        {
+                            "phase": spec.phase,
+                            "depth": depth,
+                            "fold": int(fold),
+                            "ansatz": ansatz_name,
+                            "statevector_accuracy": float(sv_row["statevector_accuracy"]),
+                            "statevector_f1": float(sv_row["statevector_f1"]),
+                            "statevector_std_accuracy": 0.0,
+                            "statevector_std_f1": 0.0,
+                            "iqm_mean_accuracy": mean_acc,
+                            "iqm_std_accuracy": std_acc,
+                            "iqm_mean_f1": mean_f1,
+                            "iqm_std_f1": std_f1,
+                            "eval_shots": shot,
+                            "n_repeats": spec.repeats if spec.run_iqm_hardware else 0,
+                            "completed_repeats": completed_repeats,
+                            "test_csv": str(sv_row["test_csv"]),
+                            "weight_path": str(sv_row["weight_path"]),
+                        }
+                    )
 
     return pd.DataFrame(rows)
 
 
 def count_statevector_tasks(spec: PhaseSpec) -> int:
-    return len(spec.folds) * len(ANSATZ_NAMES)
+    return len(spec.folds) * len(spec.ansatze)
 
 
 def count_hardware_tasks(spec: PhaseSpec) -> int:
     if not spec.run_iqm_hardware:
         return 0
-    return len(spec.folds) * len(spec.shots) * spec.repeats * len(ANSATZ_NAMES)
+    return len(spec.folds) * len(spec.shots) * spec.repeats * len(spec.ansatze)
 
 
 def iter_hardware_tasks(spec: PhaseSpec) -> list[dict[str, int | str]]:
@@ -493,7 +546,7 @@ def iter_hardware_tasks(spec: PhaseSpec) -> list[dict[str, int | str]]:
     for fold in spec.folds:
         for shot in spec.shots:
             for repeat_index in range(spec.repeats):
-                ansatz_order = list(ANSATZ_NAMES)
+                ansatz_order = list(spec.ansatze)
                 if spec.shuffle_execution:
                     rng.shuffle(ansatz_order)
                 for ansatz_name in ansatz_order:
@@ -508,7 +561,7 @@ def iter_hardware_tasks(spec: PhaseSpec) -> list[dict[str, int | str]]:
     return tasks
 
 
-def completed_task_keys(run_df: pd.DataFrame) -> set[tuple[int, str, int, int]]:
+def completed_task_keys(run_df: pd.DataFrame) -> set[tuple[int, int, str, int, int]]:
     if run_df.empty:
         return set()
     if "status" in run_df.columns:
@@ -518,7 +571,13 @@ def completed_task_keys(run_df: pd.DataFrame) -> set[tuple[int, str, int, int]]:
     else:
         completed = run_df
     return {
-        (int(row.fold), canonical_ansatz_name(str(row.ansatz)), int(row.shots), int(row.repeat_index))
+        (
+            int(row.depth),
+            int(row.fold),
+            canonical_ansatz_name(str(row.ansatz)),
+            int(row.shots),
+            int(row.repeat_index),
+        )
         for row in completed.itertuples(index=False)
     }
 
@@ -598,18 +657,22 @@ def run_cv_experiment(
     sv_completed = 0
     if not statevector_df.empty:
         for fold in spec.folds:
-            for ansatz_name in ANSATZ_NAMES:
+            for ansatz_name in spec.ansatze:
                 existing = statevector_df[
-                    (statevector_df["fold"] == int(fold)) & (statevector_df["ansatz"] == ansatz_name)
+                    (statevector_df["depth"].astype(int) == spec.depth)
+                    & (statevector_df["fold"] == int(fold))
+                    & (statevector_df["ansatz"] == ansatz_name)
                 ]
                 if not existing.empty:
                     sv_completed += 1
 
     for fold in spec.folds:
-        for ansatz_name in ANSATZ_NAMES:
+        for ansatz_name in spec.ansatze:
             if not statevector_df.empty:
                 existing = statevector_df[
-                    (statevector_df["fold"] == int(fold)) & (statevector_df["ansatz"] == ansatz_name)
+                    (statevector_df["depth"].astype(int) == spec.depth)
+                    & (statevector_df["fold"] == int(fold))
+                    & (statevector_df["ansatz"] == ansatz_name)
                 ]
                 if not existing.empty:
                     continue
@@ -636,7 +699,13 @@ def run_cv_experiment(
         hw_completed = len(done)
 
         for index, task in enumerate(tasks, start=1):
-            task_key = (task["fold"], task["ansatz"], task["shots"], task["repeat_index"])
+            task_key = (
+                spec.depth,
+                task["fold"],
+                canonical_ansatz_name(str(task["ansatz"])),
+                task["shots"],
+                task["repeat_index"],
+            )
             if task_key in done:
                 continue
 

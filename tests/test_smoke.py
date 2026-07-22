@@ -102,6 +102,7 @@ from qbanknote.evaluation import (  # noqa: E402
     ODRA_ANSATZ_NAME,
     PhaseSpec,
     SIMULATOR_ANSATZ_NAME,
+    STAR_ANSATZ_NAME,
     append_csv_row,
     build_failed_hardware_row,
     canonical_ansatz_name,
@@ -1067,8 +1068,8 @@ def test_task_counts_and_failed_row() -> None:
         target_half_width_accuracy=0.02,
         target_half_width_f1=0.03,
     )
-    assert count_statevector_tasks(spec) == 4
-    assert count_hardware_tasks(spec) == 8
+    assert count_statevector_tasks(spec) == 6
+    assert count_hardware_tasks(spec) == 12
     failed = build_failed_hardware_row(
         spec,
         fold=1,
@@ -1083,11 +1084,13 @@ def test_task_counts_and_failed_row() -> None:
 
 
 def test_qce_resp_ansatz_labels() -> None:
-    assert ANSATZ_NAMES == (ODRA_ANSATZ_NAME, SIMULATOR_ANSATZ_NAME)
+    assert ANSATZ_NAMES == (ODRA_ANSATZ_NAME, SIMULATOR_ANSATZ_NAME, STAR_ANSATZ_NAME)
     assert canonical_ansatz_name("odra") == ODRA_ANSATZ_NAME
     assert canonical_ansatz_name("ansatz_odra") == ODRA_ANSATZ_NAME
     assert canonical_ansatz_name("simulator") == SIMULATOR_ANSATZ_NAME
     assert canonical_ansatz_name("ansatz_simulator") == SIMULATOR_ANSATZ_NAME
+    assert canonical_ansatz_name("star") == STAR_ANSATZ_NAME
+    assert canonical_ansatz_name("ansatz_star") == STAR_ANSATZ_NAME
 
 
 def test_cli_argument_parsing() -> None:

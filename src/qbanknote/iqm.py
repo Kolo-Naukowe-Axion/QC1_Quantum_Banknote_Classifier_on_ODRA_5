@@ -17,7 +17,7 @@ from qiskit.quantum_info import SparsePauliOp
 from qiskit_machine_learning.connectors import TorchConnector
 from qiskit_machine_learning.neural_networks import EstimatorQNN
 
-from qbanknote.model import HybridModel
+from qbanknote.model import HybridModel, z_observable_label
 
 try:
     from iqm.qiskit_iqm import transpile_to_IQM as _iqm_transpile
@@ -44,6 +44,7 @@ class IQMBackendEstimator(BaseEstimatorV2):
         super().__init__()
         self._backend = backend
         self._options = options or {"shots": 100}
+        self._measured_qubit = int(self._options.get("measured_qubit", 0))
         self.timestamp_history: list[dict[str, Any]] = []
         self.total_qpu_time = 0.0
         self.failed_batches: list[dict[str, Any]] = []
@@ -80,7 +81,12 @@ class IQMBackendEstimator(BaseEstimatorV2):
         if isinstance(counts, list):
             counts = counts[0]
         shots = sum(counts.values())
-        count_0 = sum(c for bitstring, c in counts.items() if bitstring[-1] == "0")
+        # get_counts bitstrings are indexed with qubit 0 as the rightmost char,
+        # so logical qubit q is at position -1 - q.
+        pos = -1 - self._measured_qubit
+        count_0 = sum(
+            c for bitstring, c in counts.items() if bitstring.replace(" ", "")[pos] == "0"
+        )
         p0 = count_0 / shots if shots else 0.0
         return p0 - (1 - p0)
 
@@ -272,11 +278,13 @@ def build_iqm_estimator_model(
     seed_transpiler: int | None = None,
     random_seed: int = 42,
     max_circuits_per_job: int | None = None,
+    measured_qubit: int = 0,
 ):
     """Build a ``TorchConnector`` QNN that forwards on IQM hardware."""
     estimator_options: dict[str, Any] = {
         "shots": shots,
         "optimization_level": optimization_level,
+        "measured_qubit": measured_qubit,
     }
     if seed_transpiler is not None:
         estimator_options["seed_transpiler"] = seed_transpiler
@@ -293,7 +301,7 @@ def build_iqm_estimator_model(
     hw_qc.compose(hw_feature_map, qubits=range(num_qubits), inplace=True)
     hw_qc.compose(hw_ansatz, inplace=True)
 
-    observable = SparsePauliOp.from_list([("I" * (num_qubits - 1) + "Z", 1)])
+    observable = SparsePauliOp.from_list([(z_observable_label(num_qubits, measured_qubit), 1)])
     hw_qnn = EstimatorQNN(
         circuit=hw_qc,
         observables=observable,

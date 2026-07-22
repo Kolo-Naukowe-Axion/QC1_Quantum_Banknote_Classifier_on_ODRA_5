@@ -20,13 +20,14 @@ from qbanknote.ansatzes import (
     odra_ansatz,
     param_count_for_ansatz,
     simulator_ansatz,
+    star_ansatz,
     trimmed_reverse_q0_param_count,
 )
 from qbanknote.model import HybridModel
 from qbanknote.paths import find_project_root
 
-ModelName = Literal["Odra", "Simulator"]
-AnsatzKey = Literal["odra", "odra_star", "simulator"]
+ModelName = Literal["Odra", "Simulator", "Star"]
+AnsatzKey = Literal["odra", "odra_star", "simulator", "star"]
 Condition = Literal["Ideal", "Noise"]
 
 
@@ -64,7 +65,11 @@ def cv_weight_path(
 
 
 def metric_model_name(ansatz_name: AnsatzKey) -> ModelName:
-    return "Odra" if ansatz_name in {"odra", "odra_star"} else "Simulator"
+    if ansatz_name in {"odra", "odra_star"}:
+        return "Odra"
+    if ansatz_name == "star":
+        return "Star"
+    return "Simulator"
 
 
 def metric_weight_path(
@@ -160,7 +165,12 @@ def infer_weight_metadata(path: Path | str) -> dict[str, object]:
     if not m_depth or not m_fold:
         raise ValueError(f"Could not parse depth/fold from {path}")
 
-    environment: ModelName = "Odra" if "Odra" in text else "Simulator"
+    if "Star" in text:
+        environment: ModelName = "Star"
+    elif "Odra" in text:
+        environment = "Odra"
+    else:
+        environment = "Simulator"
     return {
         "depth": int(m_depth.group(1)),
         "fold": int(m_fold.group(1)),
@@ -275,6 +285,8 @@ def load_trained_weights(
 def build_ansatz_for_model(model_name: ModelName, n_qubits: int, depth: int) -> QuantumCircuit:
     if model_name == "Odra":
         return odra_ansatz(n_qubits, depth)
+    if model_name == "Star":
+        return star_ansatz(n_qubits, depth)
     return simulator_ansatz(n_qubits, depth)
 
 

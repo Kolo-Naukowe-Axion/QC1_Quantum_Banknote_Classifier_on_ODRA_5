@@ -14,6 +14,13 @@ from qiskit_machine_learning.connectors import TorchConnector
 from qiskit_machine_learning.neural_networks import EstimatorQNN
 
 
+def z_observable_label(num_qubits: int, measured_qubit: int = 0) -> str:
+    """Pauli label for a single Z on ``measured_qubit`` (qubit 0 = rightmost char)."""
+    if not 0 <= measured_qubit < num_qubits:
+        raise ValueError(f"measured_qubit {measured_qubit} out of range for {num_qubits} qubits")
+    return "I" * (num_qubits - 1 - measured_qubit) + "Z" + "I" * measured_qubit
+
+
 def angle_encoding_feature_map(num_qubits: int) -> QuantumCircuit:
     """RY angle encoding on ``num_qubits`` qubits."""
     qc_data = QuantumCircuit(num_qubits)
@@ -33,10 +40,12 @@ class HybridModel(nn.Module):
         *,
         random_seed: int | None = 42,
         gradient_backend: Literal["param_shift", "reverse"] = "param_shift",
+        measured_qubit: int = 0,
     ):
         super().__init__()
         self.feature_map = angle_encoding_feature_map(num_qubits)
         self.num_qubits = num_qubits
+        self.measured_qubit = measured_qubit
 
         self.qc = QuantumCircuit(num_qubits)
         self.qc.compose(self.feature_map, qubits=range(num_qubits), inplace=True)
@@ -44,7 +53,7 @@ class HybridModel(nn.Module):
 
         input_params = list(self.feature_map.parameters)
         weight_params = list(ansatz_circuit.parameters)
-        observable = SparsePauliOp.from_list([("I" * (num_qubits - 1) + "Z", 1)])
+        observable = SparsePauliOp.from_list([(z_observable_label(num_qubits, measured_qubit), 1)])
 
         estimator_kwargs = {}
         if random_seed is not None:

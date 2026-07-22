@@ -12,9 +12,8 @@ import pandas as pd
 
 from qbanknote.evaluation import (
     ANSATZ_NAMES,
-    ODRA_ANSATZ_NAME,
-    SIMULATOR_ANSATZ_NAME,
     PhaseSpec,
+    ansatz_key,
     normalize_ansatz_labels,
 )
 
@@ -138,47 +137,66 @@ def summarize_across_folds(summary_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+PAIRED_DIFF_KEY_COLUMNS = ("phase", "depth", "eval_shots", "fold")
+
+
+def _pair_fold_differences(a_row: pd.Series, b_row: pd.Series, suffix: str) -> dict[str, float]:
+    """Six paired metrics for ansatz ``a`` minus ansatz ``b`` on one fold."""
+    return {
+        f"iqm_accuracy_diff_{suffix}": float(
+            a_row["iqm_mean_accuracy"] - b_row["iqm_mean_accuracy"]
+        ),
+        f"iqm_f1_diff_{suffix}": float(a_row["iqm_mean_f1"] - b_row["iqm_mean_f1"]),
+        f"gap_accuracy_diff_{suffix}": float(
+            (a_row["statevector_accuracy"] - a_row["iqm_mean_accuracy"])
+            - (b_row["statevector_accuracy"] - b_row["iqm_mean_accuracy"])
+        ),
+        f"gap_f1_diff_{suffix}": float(
+            (a_row["statevector_f1"] - a_row["iqm_mean_f1"])
+            - (b_row["statevector_f1"] - b_row["iqm_mean_f1"])
+        ),
+        f"iqm_std_accuracy_diff_{suffix}": float(
+            a_row["iqm_std_accuracy"] - b_row["iqm_std_accuracy"]
+        ),
+        f"iqm_std_f1_diff_{suffix}": float(a_row["iqm_std_f1"] - b_row["iqm_std_f1"]),
+    }
+
+
 def compute_paired_fold_differences(summary_df: pd.DataFrame) -> pd.DataFrame:
+    """Per-fold paired differences for every ansatz pair present.
+
+    For each ``(phase, depth, eval_shots, fold)`` block, emit one row containing
+    the six paired metrics (``iqm_accuracy``, ``iqm_f1``, ``gap_accuracy``,
+    ``gap_f1``, ``iqm_std_accuracy``, ``iqm_std_f1``) for each pair of ansatze
+    present, named ``<metric>_diff_<a>_minus_<b>`` using the short ansatz keys.
+    Pairs follow ``ANSATZ_NAMES`` order, so the ``odra_minus_simulator`` columns
+    are preserved unchanged and ``*_minus_star`` columns are added when star runs.
+    """
     if summary_df.empty:
         return pd.DataFrame()
 
     summary_df = normalize_ansatz_labels(summary_df)
     rows: list[dict[str, Any]] = []
-    group_cols = ["phase", "depth", "eval_shots", "fold"]
-    for keys, group in summary_df.groupby(group_cols, dropna=False):
+    for keys, group in summary_df.groupby(list(PAIRED_DIFF_KEY_COLUMNS), dropna=False):
         phase, depth, eval_shots, fold = keys
-        if set(group["ansatz"]) != set(ANSATZ_NAMES):
+        present = {
+            name: group[group["ansatz"] == name].iloc[0]
+            for name in ANSATZ_NAMES
+            if not group[group["ansatz"] == name].empty
+        }
+        if len(present) < 2:
             continue
-        odra = group[group["ansatz"] == ODRA_ANSATZ_NAME].iloc[0]
-        simulator = group[group["ansatz"] == SIMULATOR_ANSATZ_NAME].iloc[0]
-        rows.append(
-            {
-                "phase": phase,
-                "depth": depth,
-                "eval_shots": eval_shots,
-                "fold": fold,
-                "iqm_accuracy_diff_odra_minus_simulator": float(
-                    odra["iqm_mean_accuracy"] - simulator["iqm_mean_accuracy"]
-                ),
-                "iqm_f1_diff_odra_minus_simulator": float(
-                    odra["iqm_mean_f1"] - simulator["iqm_mean_f1"]
-                ),
-                "gap_accuracy_diff_odra_minus_simulator": float(
-                    (odra["statevector_accuracy"] - odra["iqm_mean_accuracy"])
-                    - (simulator["statevector_accuracy"] - simulator["iqm_mean_accuracy"])
-                ),
-                "gap_f1_diff_odra_minus_simulator": float(
-                    (odra["statevector_f1"] - odra["iqm_mean_f1"])
-                    - (simulator["statevector_f1"] - simulator["iqm_mean_f1"])
-                ),
-                "iqm_std_accuracy_diff_odra_minus_simulator": float(
-                    odra["iqm_std_accuracy"] - simulator["iqm_std_accuracy"]
-                ),
-                "iqm_std_f1_diff_odra_minus_simulator": float(
-                    odra["iqm_std_f1"] - simulator["iqm_std_f1"]
-                ),
-            }
-        )
+        row: dict[str, Any] = {
+            "phase": phase,
+            "depth": depth,
+            "eval_shots": eval_shots,
+            "fold": fold,
+        }
+        for a_name, b_name in itertools.combinations(ANSATZ_NAMES, 2):
+            if a_name in present and b_name in present:
+                suffix = f"{ansatz_key(a_name)}_minus_{ansatz_key(b_name)}"
+                row.update(_pair_fold_differences(present[a_name], present[b_name], suffix))
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -187,19 +205,16 @@ def compute_paired_tests(diffs_df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     rows = []
-    metrics = [
-        "iqm_accuracy_diff_odra_minus_simulator",
-        "iqm_f1_diff_odra_minus_simulator",
-        "gap_accuracy_diff_odra_minus_simulator",
-        "gap_f1_diff_odra_minus_simulator",
-        "iqm_std_accuracy_diff_odra_minus_simulator",
-        "iqm_std_f1_diff_odra_minus_simulator",
-    ]
+    # Every non-key column is a paired-difference metric; this covers all ansatz
+    # pairs emitted by compute_paired_fold_differences, not just odra_minus_simulator.
+    metrics = [c for c in diffs_df.columns if c not in PAIRED_DIFF_KEY_COLUMNS]
     group_cols = ["phase", "depth", "eval_shots"]
     for keys, group in diffs_df.groupby(group_cols, dropna=False):
         phase, depth, eval_shots = keys
         for metric in metrics:
-            values = [float(v) for v in group[metric].tolist()]
+            values = [float(v) for v in group[metric].tolist() if pd.notna(v)]
+            if not values:
+                continue
             wilcoxon = wilcoxon_signed_rank_exact(values)
             sign = sign_test_exact(values)
             rows.append(
