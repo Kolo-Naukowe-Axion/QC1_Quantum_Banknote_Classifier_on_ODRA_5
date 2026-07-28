@@ -1,0 +1,2 @@
+ansatz,depth,n_qubits,n_params,n_samples,shots,seed,fold,f_phys_avg,f_phys_std,f_phys_sem,f_phys_min,f_phys_max,f_lin_avg,f_lin_std
+ansatz_odra_star,6,5,57,10,1024,6042,0,0.4916406009428592,0.02918300205194902,0.009228475544552635,0.44238580693928026,0.5500054107384973,0.5029394743511846,0.029783957939491755

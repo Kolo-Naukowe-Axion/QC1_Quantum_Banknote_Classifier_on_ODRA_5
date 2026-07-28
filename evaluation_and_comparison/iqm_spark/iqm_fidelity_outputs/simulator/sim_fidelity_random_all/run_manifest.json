@@ -1,0 +1,33 @@
+{
+  "ansatzes": [
+    "ansatz_odra",
+    "ansatz_simulator",
+    "ansatz_odra_star"
+  ],
+  "basis_gates": [
+    "rz",
+    "sx",
+    "x",
+    "cz"
+  ],
+  "created_utc": "2026-07-16T05:53:42.010569+00:00",
+  "depths": [
+    2,
+    4,
+    6
+  ],
+  "fidelity_definition": "F = <psi_ideal | rho_noisy | psi_ideal>",
+  "method": "aer_density_matrix_exact_fidelity",
+  "n_qubits": 5,
+  "n_samples": 20,
+  "noiseless": false,
+  "optimization_level": 1,
+  "outputs": [
+    "simulator_fidelity_scores.csv",
+    "simulator_fidelity_summary.csv"
+  ],
+  "p1": 0.001,
+  "p2": 0.015,
+  "seed": 42,
+  "weight_sampling": "uniform_random_0_2pi"
+}

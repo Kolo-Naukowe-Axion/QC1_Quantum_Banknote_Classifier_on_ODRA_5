@@ -6,7 +6,7 @@ State fidelity here is the hardware state-tomography fidelity:
     F = <psi_ideal | rho_hardware | psi_ideal>
 
 where ``psi_ideal`` is the noiseless statevector of the ansatz with one random
-parameter draw ``theta ~ Uniform[0, 2*pi]`` (same sampling rule as MW/KL) and
+parameter draw ``theta ~ Uniform[0, 2*pi]`` and
 ``rho_hardware`` is reconstructed from a full 3^n Pauli-basis tomography sweep
 on IQM Spark, then projected to the physical set. The headline metric is the
 physical-projection fidelity (``F_phys``).

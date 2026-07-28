@@ -1,0 +1,44 @@
+{
+  "ansatzes": [
+    "ansatz_odra",
+    "ansatz_simulator",
+    "ansatz_odra_star"
+  ],
+  "basis_gates": [
+    "r",
+    "cz"
+  ],
+  "created_utc": "2026-07-16T06:19:09.759817+00:00",
+  "depths": [
+    2,
+    4,
+    6
+  ],
+  "err1": 0.001,
+  "err2": [
+    0.005,
+    0.01,
+    0.02,
+    0.03
+  ],
+  "error_convention": "err = 1 - F_gate (avg gate error); converted to depolarizing p = err*d/(d-1)",
+  "fidelity_definition": "F = <psi_ideal | rho_noisy | psi_ideal>",
+  "gate1_s": 2e-08,
+  "gate2_s": 6e-08,
+  "method": "aer_density_matrix_exact_fidelity",
+  "n_qubits": 5,
+  "n_samples": 20,
+  "noiseless": false,
+  "optimization_level": 1,
+  "outputs": [
+    "simulator_fidelity_scores.csv",
+    "simulator_fidelity_summary.csv"
+  ],
+  "seed": 42,
+  "star_center": 0,
+  "t1_s": 0.000964,
+  "t2_s": 0.001155,
+  "thermal": true,
+  "topology": "star",
+  "weight_sampling": "uniform_random_0_2pi"
+}

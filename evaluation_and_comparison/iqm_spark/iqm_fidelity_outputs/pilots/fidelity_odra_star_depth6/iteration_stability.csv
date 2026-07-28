@@ -1,0 +1,2 @@
+ansatz,depth,shots,n_samples,iterations,iteration_mean_f_phys_avg,iteration_std_f_phys_avg,iteration_sem_f_phys_avg,iteration_half_width_95,iteration_min_f_phys_avg,iteration_max_f_phys_avg
+ansatz_odra_star,6,1024,10,2,0.49352269073007976,0.0026616769026911835,0.0018820897872205422,0.023913832836424207,0.4916406009428592,0.4954047805173003

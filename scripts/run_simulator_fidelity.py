@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
-"""Compare ansatz state fidelity fully offline (no QPU).
+"""Offline Aer fidelity aligned with the QPU tomography protocol.
 
-Uses exact Aer density-matrix simulation under a Spark-like noise model and the
-same random Uniform[0, 2*pi] parameter sampling as MW/KL/fidelity.
+Default mode (simulator-vs-QPU gap, same as current QPU fidelity pilot):
+  1. Full 3^n Pauli tomography on Aer (same reconstruction as IQM),
+  2. Logical noiseless statevector as ideal reference (same as QPU),
+  3. Random ansatz parameters theta ~ Uniform[0, 2*pi] (same as MW/KL/QPU fidelity).
 
-Methodology:
-  * native IQM Spark basis (r, cz),
-  * star coupling map so ring ansatze pay their SWAP routing cost,
-  * gate errors given as average gate error (1 - F_gate), converted to the
-    correct depolarizing probability internally,
-  * optional T1/T2 thermal relaxation,
-  * optional two-qubit error sweep to check ranking stability.
+No QPU / IQM token required. Use --weights trained for task-state fidelity
+(CV checkpoints + test inputs), or --protocol exact for fast screening.
 """
 
 from __future__ import annotations
@@ -36,6 +33,7 @@ from qbanknote.simulator_fidelity import (  # noqa: E402
     DEFAULT_ERR2,
     DEFAULT_GATE1_S,
     DEFAULT_GATE2_S,
+    DEFAULT_SHOTS,
     DEFAULT_T1,
     DEFAULT_T2,
     run_simulator_fidelity_sweep,
@@ -51,64 +49,57 @@ DEFAULT_DEPTHS = [2, 4, 6]
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Offline Aer fidelity comparison for ansatze (no IQM / no QPU). "
-            "Computes F = <psi_ideal|rho_noisy|psi_ideal> with random weights."
+            "Offline Aer fidelity (no QPU). Default = tomography + random weights "
+            "+ logical ideal, matching the current IQM fidelity pilot."
         )
     )
     parser.add_argument("--ansatz", nargs="+", default=list(DEFAULT_ANSATZES))
     parser.add_argument("--depth", type=int, nargs="+", default=DEFAULT_DEPTHS)
     parser.add_argument("--num-qubits", type=int, default=5)
-    parser.add_argument("--n-samples", type=int, default=20)
+    parser.add_argument("--n-samples", type=int, default=10)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
-        "--err1",
-        type=float,
-        default=DEFAULT_ERR1,
-        help="Average 1-qubit gate error (1 - F_1q). Default from Spark >=99.9%%.",
+        "--protocol",
+        choices=["tomography", "exact"],
+        default="tomography",
+        help="tomography = QPU-matched 3^n shot tomography; exact = fast density-matrix.",
     )
     parser.add_argument(
-        "--err2",
-        type=float,
-        default=DEFAULT_ERR2,
-        help="Average 2-qubit (CZ) gate error (1 - F_cz). Default from Spark >=99%%.",
+        "--weights",
+        choices=["trained", "random"],
+        default="random",
+        help="random = Uniform[0,2pi] ansatz only (default, same as QPU fidelity); "
+        "trained = CV checkpoints + test inputs.",
     )
     parser.add_argument(
-        "--err2-sweep",
-        type=float,
-        nargs="+",
-        default=None,
-        help="Sweep several CZ errors to check ranking stability (overrides --err2).",
+        "--shots",
+        type=int,
+        default=DEFAULT_SHOTS,
+        help="Shots per Pauli basis for --protocol tomography (default 1024).",
     )
-    parser.add_argument(
-        "--noiseless",
-        action="store_true",
-        help="Sanity check: skip noise (fidelity should be ~1 for all ansatze).",
-    )
-    parser.add_argument(
-        "--basis-gates",
-        nargs="+",
-        default=list(DEFAULT_BASIS_GATES),
-        help="Native transpile basis (default IQM Spark: r cz).",
-    )
-    parser.add_argument(
-        "--topology",
-        choices=["star", "none"],
-        default="star",
-        help="Coupling map for routing cost. 'star' = Spark; 'none' = no routing.",
-    )
+    parser.add_argument("--fold", type=int, default=1)
+    parser.add_argument("--epoch", type=int, default=30)
+    parser.add_argument("--err1", type=float, default=DEFAULT_ERR1)
+    parser.add_argument("--err2", type=float, default=DEFAULT_ERR2)
+    parser.add_argument("--err2-sweep", type=float, nargs="+", default=None)
+    parser.add_argument("--noiseless", action="store_true")
+    parser.add_argument("--basis-gates", nargs="+", default=list(DEFAULT_BASIS_GATES))
+    parser.add_argument("--topology", choices=["star", "none"], default="star")
     parser.add_argument("--star-center", type=int, default=0)
     parser.add_argument(
         "--thermal",
         action="store_true",
-        help="Add T1/T2 thermal relaxation on top of depolarizing noise.",
+        help="Add T1/T2 on top of depolarizing (may double-count datasheet RB errors).",
     )
-    parser.add_argument("--t1", type=float, default=DEFAULT_T1, help="T1 (seconds).")
-    parser.add_argument("--t2", type=float, default=DEFAULT_T2, help="T2 (seconds).")
+    parser.add_argument("--t1", type=float, default=DEFAULT_T1)
+    parser.add_argument("--t2", type=float, default=DEFAULT_T2)
     parser.add_argument("--gate1-s", type=float, default=DEFAULT_GATE1_S)
     parser.add_argument("--gate2-s", type=float, default=DEFAULT_GATE2_S)
     parser.add_argument("--optimization-level", type=int, default=1)
+    parser.add_argument("--max-circuits-per-job", type=int, default=275)
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--output-root", default=None)
+    parser.add_argument("--quiet", action="store_true")
     return parser.parse_args()
 
 
@@ -127,6 +118,13 @@ def main() -> None:
             raise SystemExit(f"Unknown ansatz: {name}. Choose from {sorted(ansatz_fns)}")
     if args.n_samples <= 0:
         raise SystemExit("--n-samples must be positive")
+    if args.protocol == "tomography" and args.shots <= 0:
+        raise SystemExit("--shots must be positive for tomography")
+    if args.thermal and not args.noiseless and not args.quiet:
+        print(
+            "Warning: --thermal with datasheet err1/err2 can double-count decoherence.",
+            flush=True,
+        )
 
     run_id = args.run_id or datetime.now(tz=timezone.utc).strftime(
         "sim_fidelity_%Y%m%d_%H%M%S"
@@ -139,17 +137,18 @@ def main() -> None:
 
     print(f"Output: {output_root}")
     print(
-        f"Ansatzes={list(args.ansatz)} depths={list(args.depth)} "
+        f"protocol={args.protocol} weights={args.weights} "
+        f"ansatzes={list(args.ansatz)} depths={list(args.depth)} "
         f"n_samples={args.n_samples} noiseless={args.noiseless}"
     )
+    if args.protocol == "tomography":
+        print(f"Tomography shots/basis: {args.shots} (3^{args.num_qubits} bases)")
     print(f"Basis gates: {list(args.basis_gates)} | topology: {args.topology}")
     if not args.noiseless:
         if args.err2_sweep:
             print(f"Noise: err1={args.err1}, err2 sweep={args.err2_sweep}")
         else:
             print(f"Noise: err1={args.err1}, err2={args.err2}")
-        if args.thermal:
-            print(f"Thermal: T1={args.t1}s T2={args.t2}s g1={args.gate1_s}s g2={args.gate2_s}s")
 
     _, summary, summary_path = run_simulator_fidelity_sweep(
         ansatz_fns=ansatz_fns,
@@ -171,13 +170,32 @@ def main() -> None:
         gate1_s=args.gate1_s,
         gate2_s=args.gate2_s,
         optimization_level=args.optimization_level,
+        protocol=args.protocol,
+        weights=args.weights,
+        shots=args.shots,
+        fold=args.fold,
+        epoch=args.epoch,
+        max_circuits_per_job=args.max_circuits_per_job,
+        root=project_root,
         output_dir=output_root,
+        verbose=not args.quiet,
     )
 
-    print("\nSummary (higher fidelity = better under this noise model):")
+    print("\nSummary (headline = fidelity_physical mean):")
     print(summary.to_string(index=False))
     print(f"\nWrote {summary_path}")
-    print(json.dumps({"run_id": run_id, "output_root": str(output_root)}, indent=2))
+    print(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "output_root": str(output_root),
+                "protocol": args.protocol,
+                "weights": args.weights,
+                "requires_qpu": False,
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

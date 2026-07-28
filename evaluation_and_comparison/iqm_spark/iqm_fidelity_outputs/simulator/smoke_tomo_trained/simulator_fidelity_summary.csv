@@ -1,0 +1,3 @@
+ansatz,depth,n_samples,n_params,f_avg,f_std,f_sem,f_min,f_max,transpiled_depth_avg,two_qubit_gates_avg,total_gates_avg
+ansatz_odra_star,2,1,17,0.8720960990785988,0.0,0.0,0.8720960990785988,0.8720960990785988,11.0,6.0,31.0
+ansatz_simulator,2,1,17,0.696522118775478,0.0,0.0,0.696522118775478,0.696522118775478,62.0,23.0,89.0

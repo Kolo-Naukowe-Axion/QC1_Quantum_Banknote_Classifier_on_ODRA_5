@@ -1,0 +1,50 @@
+{
+  "ansatzes": [
+    "ansatz_odra_star",
+    "ansatz_simulator"
+  ],
+  "backend": "AerSimulator",
+  "basis_gates": [
+    "r",
+    "cz"
+  ],
+  "checkpoint_epoch": 30,
+  "created_utc": "2026-07-16T21:21:35.990376+00:00",
+  "depths": [
+    2
+  ],
+  "elapsed_s": 1.6568115830013994,
+  "err1": 0.001,
+  "err2": 0.01,
+  "error_convention": "err = 1 - F_gate (avg gate error); p = err*d/(d-1)",
+  "fidelity_definition": "F = <psi_logical | rho_tomography | psi_logical> (same as QPU tomography protocol)",
+  "fold": 1,
+  "ideal_reference": "logical_statevector",
+  "initial_layout": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "method": "aer_full_pauli_tomography_fidelity",
+  "n_qubits": 5,
+  "n_samples": 1,
+  "noiseless": false,
+  "optimization_level": 1,
+  "outputs": [
+    "simulator_fidelity_scores.csv",
+    "simulator_fidelity_summary.csv"
+  ],
+  "protocol": "tomography",
+  "requires_qpu": false,
+  "seed": 42,
+  "shots": 512,
+  "star_center": 0,
+  "t1_s": null,
+  "t2_s": null,
+  "thermal": false,
+  "topology": "star",
+  "weight_mode": "trained",
+  "weight_sampling": "trained_cv_checkpoint_plus_test_inputs"
+}
