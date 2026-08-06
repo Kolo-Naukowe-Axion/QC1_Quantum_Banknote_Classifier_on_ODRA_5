@@ -1,0 +1,63 @@
+#!pip install ucimlrepo
+import sys          # Standard library module for system-specific parameters and functions
+import subprocess   # Standard library module for spawning new processes
+
+# Definicja funkcji do zapewnienia instalacji pakietu
+# Sprawdza, czy pakiet jest zainstalowany; jeśli nie, instaluje go za pomocą pip
+def ensure_package(pkg_name, import_name=None):
+    import_name = import_name or pkg_name  # Użyj nazwy pakietu jako nazwy importu, jeśli nie podano inaczej
+    try:
+        __import__(import_name) # Próbuje zaimportować pakiet, aby sprawdzić, czy jest dostępny
+    except ImportError: # Obsługa błędu, jeśli pakiet nie jest znaleziony
+        print(f'Instalowanie {pkg_name}...') # Informowanie o rozpoczęciu instalacji
+        # Wykonuje polecenie pip install dla brakującego pakietu
+        subprocess.check_call([sys.executable, '-m', 'pip', 'install', pkg_name])
+        print(f'Zakończono instalację {pkg_name}') # Informowanie o zakończeniu instalacji
+    except Exception as e: # Obsługa innych nieoczekiwanych błędów
+        print(f"Wystąpił nieoczekiwany błąd podczas sprawdzania pakietu {pkg_name}: {e}")
+
+# Upewnij się, że wymagane pakiety są zainstalowane przed ich importowaniem
+ensure_package('numpy')         # Zapewnia instalację pakietu NumPy
+ensure_package('scikit-learn', 'sklearn') # Zapewnia instalację pakietu scikit-learn (importowany jako sklearn)
+ensure_package('ucimlrepo')     # Zapewnia instalację pakietu ucimlrepo
+
+import numpy as np                      # Importuje bibliotekę NumPy do operacji numerycznych
+from sklearn.preprocessing import MinMaxScaler # Importuje MinMaxScaler do skalowania danych
+from sklearn.model_selection import train_test_split # Importuje train_test_split do podziału danych
+from ucimlrepo import fetch_ucirepo     # Importuje fetch_ucirepo do pobierania zestawów danych z UCI ML Repository
+
+# Funkcja przygotowująca dane
+def prepare_data():
+
+    # Pobiera zestaw danych 'banknote authentication' z UCI ML Repository
+    banknote_authentication = fetch_ucirepo(id=267)
+    # Wyodrębnia cechy (zmienne niezależne) z zestawu danych
+    X = banknote_authentication.data.features
+    # Wyodrębnia zmienną docelową (zmienna zależna) z zestawu danych
+    y = banknote_authentication.data.targets
+
+    X = X.to_numpy() # Konwertuje cechy na tablicę NumPy
+    y = y.to_numpy().ravel() # Konwertuje zmienną docelową na spłaszczoną tablicę NumPy
+
+    # Dzieli dane na zestawy treningowe i testowe
+    # test_size=0.2 oznacza 20% danych dla testowania, random_state zapewnia powtarzalność podziału
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    # Skalowanie danych
+    # Inicjalizuje MinMaxScaler, który skaluje cechy do zakresu od 0 do pi
+    scaler = MinMaxScaler(feature_range=(0, np.pi))
+    # Dopasowuje skaler do danych treningowych i jednocześnie je skaluje
+    # 'fit_transform' jest używane na danych treningowych, aby skaler nauczył się min/max wartości
+    X_train_scaled = scaler.fit_transform(X_train)
+    # Skaluje dane testowe przy użyciu parametrów nauczonych z danych treningowych
+    # 'transform' jest używane na danych testowych, aby uniknąć wycieku danych
+    X_test_scaled = scaler.transform(X_test)
+
+    # Zwraca przygotowane i przeskalowane dane
+    return X_train_scaled, X_test_scaled, y_train, y_test
+
+# Uruchamia funkcję prepare_data() tylko wtedy, gdy skrypt jest wykonywany bezpośrednio
+if __name__ == "__main__":
+    # Wywołuje funkcję przygotowującą dane i przypisuje zwrócone wartości do zmiennych
+    X_tr, X_te, y_tr, y_te = prepare_data()
+    print("test") # Wypisuje "test" do konsoli, sygnalizując zakończenie operacji
