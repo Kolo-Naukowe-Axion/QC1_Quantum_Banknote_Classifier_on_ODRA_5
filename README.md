@@ -13,7 +13,7 @@ The full empirical study and five-dimensional evaluation framework are documente
 * **Affiliation**: Wrocław University of Science and Technology (**WUST**).
 * **Mission**: Exploring practical IT applications of Quantum Information Science.
 * **Project Role**: Hardware-native ansatz design, multi-dimensional benchmarking, and end-to-end classification on **IQM Spark ODRA 5**.
-* **Members**: Iwo Wojtakajtis, Iwo Smura, Rafał Balicki, Karina Leśkiewicz, Maria Płatek, Michał Szczęsny.
+* **Members**: Iwo Wojtakajtis, Rafał Balicki, Karina Leśkiewicz, Maria Płatek, Michał Szczęsny.
 
 ---
 
